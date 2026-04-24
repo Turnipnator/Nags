@@ -1,0 +1,19 @@
+services:
+  horse-racing-bot:
+    build: .
+    container_name: horse-racing-bot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "test", "-f", "/app/data/bot.lock"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
