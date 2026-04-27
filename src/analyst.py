@@ -44,9 +44,9 @@ You will receive programmatically scored runners from today's races. The scorer 
 2. READ EVERY SPOTLIGHT before selecting. When Spotlight says "all wins came under conditions that don't apply today" — DOWNGRADE regardless of RPR/TS
 3. NEVER select a horse priced at evens or shorter (≤ 1/1). Zero value. Replace with the NB. Tightened 14 Apr after Dearkeithandkaty EvensF beaten
 4. NAP must score 78+. If nothing qualifies, set nap_index to -1
-5. NB SWAP RULE (MANDATORY — BIDIRECTIONAL): When selection and NB score within 5 points, swap in EITHER case: (a) NB is 2x+ the odds of sel → chase value, or (b) NB is market favourite / shorter-priced than sel → trust market. Validated 14 Apr: Great Chieftain NAP 100/30 vs Mister Winston NB 9/4F (NB won, sel 9th). Regal Envoy 9/2 vs Jakajaro 4/1F (NB won, sel 3rd)
+5. NB SWAP RULE (MANDATORY — BIDIRECTIONAL): When selection and NB score within 5 points, swap in EITHER case: (a) NB is 2x+ the odds of sel → chase value, or (b) NB is market favourite / shorter-priced than sel → trust market. Validated 14 Apr: Great Chieftain NAP 100/30 vs Mister Winston NB 9/4F (NB won, sel 9th). Regal Envoy 9/2 vs Jakajaro 4/1F (NB won, sel 3rd). SPOTLIGHT GATE on (a) added 27 Apr: do NOT promote NB to SEL via value swap if NB Spotlight contains negative phrases ("hard to fancy", "needs to improve", "may prove resurgent", "best watched", "needs further", "not the percentage call", "much to find", "ideally needs", "not totally convincing", "loads to find"). The compliance gate now blocks this automatically — if a swap is suppressed, you'll see "VALUE SWAP BLOCKED" in the log. Rule (b) is NOT gated by Spotlight (informed money beats analyst caveats). Validated 27 Apr: Diamondsinthesand 33/1 (Spotlight: "ideally needs further") and Nakaaha 9/1 (Spotlight: "may prove resurgent") were both bot value-swap promotions today; Diamonds UP, Nakaaha 2nd only — Candonomore EvensF won
 6. QUICK TURNAROUND: NH horse back within 7 days = already penalised -5 in scorer. Respect that penalty
-7. SYSTEM-RESISTANT RACES: Big-field finals (12+ runners), Pertemps/Veterans/series finals, Foxhunters, bumpers with 15+ runners, early-season 3yo Flat handicaps (Mar/Apr/early May) with 12+ runners = half stakes, E/W only, NEVER NAP
+7. SYSTEM-RESISTANT RACES: Big-field finals (12+ runners), Pertemps/Veterans/series finals, Foxhunters, bumpers with 15+ runners, early-season 3yo Flat handicaps (Mar/Apr/early May) with 12+ runners, AND big-field Listed/Group sprints with 16+ runners (5f-7f, added 27 Apr after Bucanero Fuerte 10/3 5th in 16-runner Naas Listed) = half stakes, E/W only, NEVER NAP
 8. ONE selection per race maximum
 9. Score EVERY runner in target races before picking. No shortcuts
 10. NEVER override our RPR/TS pick entirely for Timeform. When they disagree, keep BOTH as contenders
@@ -187,14 +187,85 @@ def _is_sub_evens(odds_str: str) -> bool:
     return 0 < dec <= 1.0
 
 
-def _is_system_resistant_race(race_name: str, num_runners: int, race_type: str = "") -> bool:
+# Spotlight gate phrases for value-swap rule (added 27 Apr 2026 after
+# Diamondsinthesand "ideally needs further" UP and Nakaaha "may prove
+# resurgent" 2nd-only on 27 Apr). When any of these appear in the NB's
+# Spotlight, the value swap (a) is suppressed — chasing the longer
+# price on a horse the analyst has already cautioned against is the
+# worst kind of value-trap.
+_NEG_SPOTLIGHT_PHRASES = (
+    "hard to fancy",
+    "hard to recommend",
+    "needs to improve",
+    "needs more",
+    "may prove resurgent",
+    "best watched",
+    "not the percentage call",
+    "needs further",
+    "much to find",
+    "ideally needs",
+    "not totally convincing",
+    "loads to find",
+    "questionable",
+    "plenty to prove",
+    "lots to find",
+    "lot to find",
+    "needs a revival",
+    "would need",
+)
+
+
+def _has_negative_spotlight(comment: str) -> bool:
+    """Return True if the Spotlight contains a phrase that warrants
+    suppressing the value-swap promotion. Case-insensitive substring
+    match — keep the phrase list narrow and load-bearing, not every
+    cautious word."""
+    if not comment:
+        return False
+    c = comment.lower()
+    return any(phrase in c for phrase in _NEG_SPOTLIGHT_PHRASES)
+
+
+def _parse_distance_to_furlongs(distance: str) -> float:
+    """Convert distance string like '5f', '1m4f', '1m', '7.5f' to furlongs.
+    Returns 0 if unparseable."""
+    if not distance:
+        return 0.0
+    s = distance.lower().replace(" ", "")
+    miles = 0.0
+    furlongs = 0.0
+    if "m" in s:
+        before_m, _, after_m = s.partition("m")
+        try:
+            miles = float(before_m)
+        except ValueError:
+            miles = 0.0
+        s = after_m
+    if "f" in s:
+        before_f, _, _ = s.partition("f")
+        try:
+            furlongs = float(before_f)
+        except ValueError:
+            furlongs = 0.0
+    return miles * 8 + furlongs
+
+
+def _is_system_resistant_race(race_name: str, num_runners: int,
+                              race_type: str = "",
+                              pattern: str = "",
+                              distance: str = "",
+                              race_class: str = "") -> bool:
     """Check if a race is system-resistant (big-field finals, big bumpers,
-    early-season 3yo Flat handicaps etc). Half stakes, E/W only, never NAP."""
+    early-season 3yo Flat handicaps, big-field Listed sprints etc).
+    Half stakes, E/W only, never NAP."""
     import datetime
     name_lower = (race_name or "").lower()
     type_lower = (race_type or "").lower()
-    for pattern in SYSTEM_RESISTANT_PATTERNS:
-        if pattern in name_lower:
+    pattern_lower = (pattern or "").lower()
+    class_lower = (race_class or "").lower()
+
+    for sr_pattern in SYSTEM_RESISTANT_PATTERNS:
+        if sr_pattern in name_lower:
             return True
     # Big-field finals (12+ runners)
     if num_runners >= 12 and "final" in name_lower:
@@ -215,16 +286,36 @@ def _is_system_resistant_race(race_name: str, num_runners: int, race_type: str =
     is_flat = "flat" in type_lower or ("hurdle" not in name_lower and "chase" not in name_lower and "bumper" not in name_lower)
     if is_early_season and is_3yo_only and is_handicap and is_flat and num_runners >= 12:
         return True
+    # Big-field Listed/Group sprints (16+ runners, 5f-7f). Added 27 Apr 2026
+    # after Naas 7:15 Anglesey Lodge Equine Hospital Woodlands Stakes — 16
+    # runners, 5f, Listed. Bucanero Fuerte (10/3 fav, raw RPR 118 highest)
+    # finished 5th; Mission Central won at 13/2. Bot NAP'd Bucanero at 84
+    # score; the figures-leader-gets-mugged-in-chaos pattern matches big-field
+    # handicap finals.
+    is_listed = "listed" in pattern_lower or "listed" in name_lower
+    is_group = pattern_lower.startswith("group") or "group" in pattern_lower
+    is_pattern_race = is_listed or is_group or class_lower == "class 1"
+    distance_f = _parse_distance_to_furlongs(distance)
+    is_sprint = 0 < distance_f <= 7.0
+    if is_pattern_race and is_sprint and num_runners >= 16:
+        return True
     return False
 
 
-def _enforce_compliance(selections: dict, scored_lookup: dict) -> dict:
+def _enforce_compliance(selections: dict, scored_lookup: dict,
+                        race_meta_lookup: dict = None) -> dict:
     """
     PROGRAMMATIC COMPLIANCE GATE.
     Runs AFTER Claude returns selections, BEFORE sending to Telegram.
     Enforces rules that Claude may have missed.
     Returns corrected selections dict.
+
+    race_meta_lookup is keyed by lowered race name and provides
+    num_runners / pattern / distance / race_class for richer system-
+    resistant detection (added 27 Apr 2026 for big-field Listed sprints).
     """
+    if race_meta_lookup is None:
+        race_meta_lookup = {}
     sels = selections.get("selections", [])
     if not sels:
         return selections
@@ -331,6 +422,9 @@ def _enforce_compliance(selections: dict, scored_lookup: dict) -> dict:
 
         # CHECK 1: NB SWAP RULE (BIDIRECTIONAL)
         # (a) VALUE SWAP: scores close AND NB is 2x+ the odds → chase value
+        #     GATED 27 Apr 2026: suppress when NB Spotlight contains negative
+        #     phrases (Diamondsinthesand "ideally needs further" UP and
+        #     Nakaaha "may prove resurgent" 2nd-only validated the gate)
         # (b) MARKET SWAP: scores close AND NB is shorter-priced / favourite → trust market
         # Both validated 14 Apr 2026: Great Chieftain NAP (100/30) vs Mister
         # Winston NB (9/4F) — NB won; Regal Envoy (9/2) vs Jakajaro (4/1F) — NB won
@@ -342,7 +436,22 @@ def _enforce_compliance(selections: dict, scored_lookup: dict) -> dict:
             swap_reason = None
             if score_gap <= 5 and sel_dec > 0 and nb_dec > 0:
                 if nb_dec >= (sel_dec * 2):
-                    swap_reason = "NB 2x+ odds (value swap)"
+                    # Apply Spotlight gate to value swap only
+                    nb_comment = ""
+                    if nb_sr is not None and getattr(nb_sr, "runner", None) is not None:
+                        nb_comment = getattr(nb_sr.runner, "comment", "") or ""
+                    if _has_negative_spotlight(nb_comment):
+                        compliance_fixes.append(
+                            f"VALUE SWAP BLOCKED: {nb_horse} ({nb_odds}) has "
+                            f"negative Spotlight — keeping {horse} ({odds}) as SEL. "
+                            f"Spotlight gate added 27 Apr"
+                        )
+                        logger.info(
+                            f"Compliance: value swap blocked, {nb_horse} has "
+                            f"negative Spotlight"
+                        )
+                    else:
+                        swap_reason = "NB 2x+ odds (value swap)"
                 elif nb_dec < sel_dec:
                     swap_reason = "NB shorter-priced / market favourite (market swap)"
 
@@ -421,8 +530,16 @@ def _enforce_compliance(selections: dict, scored_lookup: dict) -> dict:
     # CHECK 7: SYSTEM-RESISTANT RACES — demote to E/W, prevent NAP
     for i, sel in enumerate(sels):
         race_name = sel.get("race_name", "")
-        # We don't have num_runners in the selection dict, so check name patterns
-        if _is_system_resistant_race(race_name, 12):
+        meta = race_meta_lookup.get((race_name or "").lower(), {})
+        num_runners = meta.get("num_runners", 12)
+        if _is_system_resistant_race(
+            race_name,
+            num_runners,
+            race_type=meta.get("race_type", ""),
+            pattern=meta.get("pattern", ""),
+            distance=meta.get("distance", ""),
+            race_class=meta.get("race_class", ""),
+        ):
             sel["each_way"] = True
             if selections.get("nap_index") == i:
                 selections["nap_index"] = -1
@@ -555,9 +672,19 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
 
     # Build scored lookup for compliance gate
     scored_lookup = {}
+    race_meta_lookup = {}
     for scored_runners, race, meeting in top_races_data:
         for sr in scored_runners:
             scored_lookup[sr.runner.name.lower()] = sr
+        # race meta keyed by lowercased name — compliance gate looks up
+        # selection by race_name to enforce system-resistant + sub-evens
+        race_meta_lookup[(race.name or "").lower()] = {
+            "num_runners": race.num_runners,
+            "race_type": race.race_type or "",
+            "pattern": getattr(race, "pattern", "") or "",
+            "distance": race.distance or "",
+            "race_class": race.race_class or "",
+        }
 
     # Step 3: Claude judgement
     try:
@@ -569,7 +696,7 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
             logger.info(f"Claude picked {len(selections['selections'])} selections")
 
             # Step 3.5: COMPLIANCE GATE — enforce rules programmatically
-            selections = _enforce_compliance(selections, scored_lookup)
+            selections = _enforce_compliance(selections, scored_lookup, race_meta_lookup)
 
             return selections
         logger.warning("Claude returned empty, falling back to programmatic")
@@ -578,7 +705,7 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
 
     # Step 4: Fallback (also gets compliance gate)
     fallback = _programmatic_cherry_pick(top_races_data, n_races=n_races)
-    fallback = _enforce_compliance(fallback, scored_lookup)
+    fallback = _enforce_compliance(fallback, scored_lookup, race_meta_lookup)
     return fallback
 
 
@@ -623,7 +750,12 @@ def _run_claude_judgement(top_races_data: list, meetings: list[Meeting],
 
         # Flag system-resistant races
         resistant_flag = ""
-        if _is_system_resistant_race(race.name, race.num_runners, race.race_type):
+        if _is_system_resistant_race(
+            race.name, race.num_runners, race.race_type,
+            pattern=getattr(race, "pattern", "") or "",
+            distance=race.distance or "",
+            race_class=race.race_class or "",
+        ):
             resistant_flag = " ⚠️ SYSTEM-RESISTANT (half stakes, E/W only, never NAP)"
 
         parts.append(f"\n{'─' * 55}")
