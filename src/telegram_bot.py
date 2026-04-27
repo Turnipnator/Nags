@@ -44,8 +44,11 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/today - Today's selections + NBs\n"
         "/nap - NAP of the day\n"
         "/nb - Next Best pick\n"
-        "/run - Run pipeline (all meetings)\n"
+        "/run - Run pipeline (all meetings, default 4 picks)\n"
         "/run aintree - Run for specific course(s)\n"
+        "/run 3 - Cherry-pick top 3 races across all cards\n"
+        "/run aintree 3 - Cherry-pick top 3 races from one course\n"
+        "  (N must be 2-8; Operating Policy still filters cards <70+)\n"
         "/focus aintree - Lock scheduled runs to course(s)\n"
         "/focus - Clear focus (all meetings)\n"
         "/results - Latest results & P&L\n"
@@ -166,20 +169,47 @@ async def resume_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def run_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /run [course ...] - force run the pipeline now, optionally for specific courses."""
+    """Handle /run [course ...] [N] — optionally cherry-pick top N races (N must be 2-8)."""
     if not _is_authorised(update):
         return
-    focus_courses = list(context.args) if context.args else None
+    args = list(context.args) if context.args else []
+
+    # If the trailing arg is an integer in 2-8, treat it as n_races
+    n_races = None
+    if args and args[-1].isdigit():
+        candidate = int(args[-1])
+        args = args[:-1]  # always pop — a bare digit is never a course name
+        if 2 <= candidate <= 8:
+            n_races = candidate
+        else:
+            msg = update.message or update.effective_message
+            if msg:
+                await msg.reply_text(
+                    f"⚠️ N must be 2-8 (you asked for {candidate}). "
+                    f"Running default mode instead."
+                )
+
+    focus_courses = args if args else None
     msg = update.message or update.effective_message
-    if focus_courses:
-        label = ", ".join(c.title() for c in focus_courses)
-        if msg:
+
+    if msg:
+        if n_races and focus_courses:
+            label = ", ".join(c.title() for c in focus_courses)
+            await msg.reply_text(
+                f"🎯 Cherry-picking top {n_races} races from {label}..."
+            )
+        elif n_races:
+            await msg.reply_text(
+                f"🎯 Cherry-picking top {n_races} races across all cards..."
+            )
+        elif focus_courses:
+            label = ", ".join(c.title() for c in focus_courses)
             await msg.reply_text(f"🏇 Running pipeline for {label}...")
-    else:
-        if msg:
+        else:
             await msg.reply_text("🏇 Running pipeline (all meetings)...")
+
     from main import run_daily_pipeline
-    await run_daily_pipeline(focus_courses=focus_courses)
+    await run_daily_pipeline(focus_courses=focus_courses, n_races=n_races)
 
 
 async def focus_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):

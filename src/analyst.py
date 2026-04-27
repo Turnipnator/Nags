@@ -449,10 +449,15 @@ def _should_be_each_way_from_odds(odds_str: str, race_name: str, num_runners: in
 
 
 def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
-                         going_reports: dict = None) -> dict:
+                         going_reports: dict = None,
+                         n_races: int = None) -> dict:
     """
     Cherry-pick mode: score ALL meetings, send top races to Claude,
     apply compliance gate, return the best 3 selections.
+
+    If n_races is set, deterministically pick the top N races by
+    top-runner score (gap-to-2nd as tiebreak), with Operating Policy
+    floor (top scorer must be 70+).
     """
     if not meetings:
         return {}
@@ -475,23 +480,78 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
     if not all_scored:
         return {}
 
-    # Step 2: Sort by score, get top races
-    all_scored.sort(key=lambda x: x[0].total, reverse=True)
-    top_runners = all_scored[:60]
-
-    top_race_keys = set()
-    top_races_data = []
-    for sr, race, meeting in top_runners:
+    # Step 2: Build per-race scored lists, then choose target races
+    races_by_key = {}
+    for sr, race, meeting in all_scored:
         key = f"{meeting.course}_{race.time}"
-        if key not in top_race_keys:
-            top_race_keys.add(key)
-            race_scored = scorer.score_race(race)
-            top_races_data.append((race_scored, race, meeting))
+        if key not in races_by_key:
+            races_by_key[key] = (scorer.score_race(race), race, meeting)
 
-    logger.info(
-        f"Scored {len(all_scored)} runners across {len(meetings)} meetings. "
-        f"Top {len(top_races_data)} races ({len(top_runners)} runners) sent for judgement."
-    )
+    if n_races:
+        # /run N mode: rank races by top-runner score, gap-to-2nd tiebreak
+        ranked = []
+        for race_scored, race, meeting in races_by_key.values():
+            if not race_scored:
+                continue
+            top1 = race_scored[0].total
+            top2 = race_scored[1].total if len(race_scored) > 1 else 0
+            gap = top1 - top2
+            ranked.append((top1, gap, race_scored, race, meeting))
+        ranked.sort(key=lambda x: (-x[0], -x[1]))
+
+        # Operating Policy floor — drop races whose top scorer is <70
+        qualifying = [r for r in ranked if r[0] >= 70]
+        dropped = len(ranked) - len(qualifying)
+        if dropped:
+            logger.info(
+                f"/run {n_races}: {dropped} races dropped — top scorer < 70 (Operating Policy)"
+            )
+
+        chosen = qualifying[:n_races]
+        top_races_data = [(rs, race, meeting) for _, _, rs, race, meeting in chosen]
+
+        if not top_races_data:
+            logger.warning(
+                f"/run {n_races}: no races qualify (no top scorer ≥70). Returning empty."
+            )
+            return {
+                "selections": [],
+                "double": {},
+                "nap_index": -1,
+                "notes": (
+                    f"You asked for top {n_races} races but no card has a runner "
+                    f"scoring 70+. Operating Policy says skip — try later or use "
+                    f"/run without a number."
+                ),
+            }
+
+        if len(top_races_data) < n_races:
+            logger.info(
+                f"/run {n_races}: only {len(top_races_data)} races qualify at 70+. "
+                f"Returning those."
+            )
+
+        logger.info(
+            f"Scored {len(all_scored)} runners across {len(meetings)} meetings. "
+            f"Cherry-picked top {len(top_races_data)} of {n_races} requested races."
+        )
+    else:
+        # Default mode: top runners across all meetings → distinct races
+        all_scored.sort(key=lambda x: x[0].total, reverse=True)
+        top_runners = all_scored[:60]
+
+        top_race_keys = set()
+        top_races_data = []
+        for sr, race, meeting in top_runners:
+            key = f"{meeting.course}_{race.time}"
+            if key not in top_race_keys:
+                top_race_keys.add(key)
+                top_races_data.append(races_by_key[key])
+
+        logger.info(
+            f"Scored {len(all_scored)} runners across {len(meetings)} meetings. "
+            f"Top {len(top_races_data)} races ({len(top_runners)} runners) sent for judgement."
+        )
 
     # Build scored lookup for compliance gate
     scored_lookup = {}
@@ -501,7 +561,10 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
 
     # Step 3: Claude judgement
     try:
-        selections = _run_claude_judgement(top_races_data, meetings, tips_text, going_reports)
+        selections = _run_claude_judgement(
+            top_races_data, meetings, tips_text, going_reports,
+            n_races=n_races,
+        )
         if selections and selections.get("selections"):
             logger.info(f"Claude picked {len(selections['selections'])} selections")
 
@@ -514,13 +577,14 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
         logger.error(f"Claude judgement failed: {e}", exc_info=True)
 
     # Step 4: Fallback (also gets compliance gate)
-    fallback = _programmatic_cherry_pick(top_races_data)
+    fallback = _programmatic_cherry_pick(top_races_data, n_races=n_races)
     fallback = _enforce_compliance(fallback, scored_lookup)
     return fallback
 
 
 def _run_claude_judgement(top_races_data: list, meetings: list[Meeting],
-                          tips_text: str, going_reports: dict) -> dict:
+                          tips_text: str, going_reports: dict,
+                          n_races: int = None) -> dict:
     """Send scored data to Claude for final selection."""
     if not ANTHROPIC_API_KEY:
         logger.warning("No API key, skipping Claude judgement")
@@ -529,6 +593,17 @@ def _run_claude_judgement(top_races_data: list, meetings: list[Meeting],
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     parts = []
+    if n_races:
+        parts.append(
+            f"CHERRY-PICK MODE: User requested top {n_races} races. "
+            f"You are given exactly {len(top_races_data)} pre-selected races below "
+            f"(ranked by top-runner score). Return ONE selection per race — "
+            f"so exactly {len(top_races_data)} entries in the selections array. "
+            f"This OVERRIDES the system prompt's '4 selections' default. "
+            f"NAP/NB-of-day discipline still applies (NAP must score 78+ or set "
+            f"nap_index to -1). Each entry needs its own next_best."
+        )
+        parts.append("")
     parts.append("TODAY'S UK/IRISH RACING - TOP SCORING RACES FOR ANALYSIS")
     parts.append(f"\nMeetings scanned: {', '.join(m.course + ' (' + (m.going or '?') + ')' for m in meetings)}")
 
@@ -658,8 +733,8 @@ def _run_claude_judgement(top_races_data: list, meetings: list[Meeting],
     return json.loads(text)
 
 
-def _programmatic_cherry_pick(top_races_data: list) -> dict:
-    """Fallback: pick top 3 from programmatic scores alone."""
+def _programmatic_cherry_pick(top_races_data: list, n_races: int = None) -> dict:
+    """Fallback: pick top SEL+NB per race from programmatic scores alone."""
     all_picks = []
     for scored_runners, race, meeting in top_races_data:
         if len(scored_runners) < 2:
@@ -670,8 +745,9 @@ def _programmatic_cherry_pick(top_races_data: list) -> dict:
 
     all_picks.sort(key=lambda x: x["sel"].total, reverse=True)
 
+    cap = n_races if n_races else NUM_SELECTIONS
     selections = []
-    for i, pick in enumerate(all_picks[:NUM_SELECTIONS]):
+    for i, pick in enumerate(all_picks[:cap]):
         sel = pick["sel"]
         nb = pick["nb"]
         race = pick["race"]

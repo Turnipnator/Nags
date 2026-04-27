@@ -56,7 +56,7 @@ def setup_logging():
     logging.getLogger("telegram").setLevel(logging.WARNING)
 
 
-async def run_daily_pipeline(focus_courses: list[str] = None):
+async def run_daily_pipeline(focus_courses: list[str] = None, n_races: int = None):
     """
     Cherry-pick pipeline:
     1. Scan UK/Irish meetings (optionally filtered to specific courses)
@@ -64,6 +64,11 @@ async def run_daily_pipeline(focus_courses: list[str] = None):
     3. Score everything programmatically
     4. Send top races to Claude for judgement
     5. Output: best 4 selections + 4 NBs + double
+
+    If n_races is set (2-8), the pipeline ranks races by their top-runner
+    score (gap-to-2nd as tiebreak) and cherry-picks the top N races,
+    returning one SEL + one NB per race. Operating Policy still applies —
+    races whose top scorer is below 70 are dropped from the N count.
     """
     if is_bot_paused():
         logger.info("Bot is paused, skipping pipeline")
@@ -131,11 +136,15 @@ async def run_daily_pipeline(focus_courses: list[str] = None):
 
         # Step 3: Score everything + Claude judgement → 3 selections
         selections = analyse_all_meetings(
-            all_meetings, tips_text, going_reports
+            all_meetings, tips_text, going_reports, n_races=n_races
         )
 
         if not selections or not selections.get("selections"):
-            await send_message("⚠️ No selections generated today.")
+            note = selections.get("notes") if selections else None
+            if note:
+                await send_message(f"⚠️ {note}")
+            else:
+                await send_message("⚠️ No selections generated today.")
             return
 
         # Step 4: Save to database
