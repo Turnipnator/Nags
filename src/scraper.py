@@ -187,31 +187,25 @@ class Scraper:
         else:
             focus_lower = None
 
-        # Group races by course — EXCLUDE AW flat cards
-        # Our system is proven on NH turf. AW evening cards consistently underperform.
+        # Group races by course. AW cards INCLUDED — Operating Policy (CLAUDE.md
+        # 23 Apr 2026) names AW evening Flat handicaps as the framework's sweet
+        # spot. The score-threshold gates (skip cards without 75+ scorer) handle
+        # filtering naturally — no surface-level exclusion needed.
         course_races = {}
         for race_data in data.get("racecards", []):
             region = race_data.get("region", "")
             course = race_data["course"]
-            surface = race_data.get("surface", "")
             race_type = race_data.get("type", "")
 
             # Skip abandoned meetings
             if race_data.get("is_abandoned") or race_data.get("race_status") == "abandoned":
                 continue
 
-            # Apply focus filter if set (check BEFORE AW block — explicit focus overrides)
+            # Apply focus filter if set
             # Use substring matching so "wolverhampton" matches "Wolverhampton (AW)"
             if focus_lower:
                 course_lower = course.lower()
                 if not any(f in course_lower or course_lower in f for f in focus_lower):
-                    continue
-
-            # Skip AW flat cards — UNLESS user explicitly focused on this course
-            if not focus_lower:
-                if surface and surface.lower() in ("artificial", "polytrack", "tapeta", "fibresand"):
-                    continue
-                if "(AW)" in course:
                     continue
 
             if region in ("GB", "IRE") and self._is_valid_course(course):
