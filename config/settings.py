@@ -118,8 +118,8 @@ EDGE_BONUSES = {
     "pace_scenario_suits": 2,
 }
 
-# Selection thresholds
-NAP_THRESHOLD = 78
+# Selection thresholds (v4.1: 75+ for NAP, back from v3's 78+)
+NAP_THRESHOLD = 75
 NEXT_BEST_THRESHOLD = 65
 EACH_WAY_THRESHOLD = 55
 PASS_THRESHOLD = 55

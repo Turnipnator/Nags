@@ -43,10 +43,12 @@ You will receive programmatically scored runners from today's races. The scorer 
 1. ELIMINATED runners (score 0, "ELIMINATED" in edges): NEVER select these
 2. READ EVERY SPOTLIGHT before selecting. When Spotlight says "all wins came under conditions that don't apply today" — DOWNGRADE regardless of RPR/TS
 3. NEVER select a horse priced at evens or shorter (≤ 1/1). Zero value. Replace with the NB. Tightened 14 Apr after Dearkeithandkaty EvensF beaten
-4. NAP must score 78+. If nothing qualifies, set nap_index to -1
-5. NB SWAP RULE (MANDATORY — BIDIRECTIONAL): When selection and NB score within 5 points, swap in EITHER case: (a) NB is 2x+ the odds of sel → chase value, or (b) NB is market favourite / shorter-priced than sel → trust market. Validated 14 Apr: Great Chieftain NAP 100/30 vs Mister Winston NB 9/4F (NB won, sel 9th). Regal Envoy 9/2 vs Jakajaro 4/1F (NB won, sel 3rd). SPOTLIGHT GATE on (a) added 27 Apr: do NOT promote NB to SEL via value swap if NB Spotlight contains negative phrases ("hard to fancy", "needs to improve", "may prove resurgent", "best watched", "needs further", "not the percentage call", "much to find", "ideally needs", "not totally convincing", "loads to find"). The compliance gate now blocks this automatically — if a swap is suppressed, you'll see "VALUE SWAP BLOCKED" in the log. Rule (b) is NOT gated by Spotlight (informed money beats analyst caveats). Validated 27 Apr: Diamondsinthesand 33/1 (Spotlight: "ideally needs further") and Nakaaha 9/1 (Spotlight: "may prove resurgent") were both bot value-swap promotions today; Diamonds UP, Nakaaha 2nd only — Candonomore EvensF won
+4. NAP must score 75+ (v4.1, dropped from v3's 78+). If nothing qualifies, set nap_index to -1
+5. NB SWAP RULE — split into mandatory market swap and gated value swap:
+   (a) MARKET SWAP (MANDATORY): scores within 5pts AND NB is shorter-priced / market favourite → swap. Trust the market. Validated 14 Apr: Mister Winston 9/4F won where Great Chieftain 100/30 NAP failed; Jakajaro 4/1F won where Regal Envoy 9/2 sel finished 3rd. Validated 29 Apr Pontefront: Walsingham 9/4F won (against On The River sel), Lightening Co 2/1JF won (against Bearwith sel)
+   (b) VALUE SWAP (CONSIDER WITH SPOTLIGHT GATE): scores within 5pts AND NB is 2x+ the sel odds → consider, but DO NOT promote if NB Spotlight contains negative phrases ("hard to fancy", "needs to improve", "may prove resurgent", "best watched", "needs further", "not the percentage call", "much to find", "ideally needs", "not totally convincing", "loads to find"). The compliance gate blocks suppressed swaps automatically — log shows "VALUE SWAP BLOCKED". Validated 27 Apr: Diamondsinthesand 33/1 (Spotlight "ideally needs further") and Nakaaha 9/1 (Spotlight "may prove resurgent") both bot value-swap promotions; Diamonds UP, Nakaaha 2nd only
 6. QUICK TURNAROUND: NH horse back within 7 days = already penalised -5 in scorer. Respect that penalty
-7. SYSTEM-RESISTANT RACES: Big-field finals (12+ runners), Pertemps/Veterans/series finals, Foxhunters, bumpers with 15+ runners, early-season 3yo Flat handicaps (Mar/Apr/early May) with 12+ runners, AND big-field Listed/Group sprints with 16+ runners (5f-7f, added 27 Apr after Bucanero Fuerte 10/3 5th in 16-runner Naas Listed) = half stakes, E/W only, NEVER NAP
+7. SYSTEM-RESISTANT RACES: Big-field finals (12+ runners), Pertemps/Veterans/series finals, Foxhunters, bumpers with 15+ runners, early-season 3yo Flat handicaps (Mar/Apr/early May) with 12+ runners = half stakes, E/W only, NEVER NAP. (v4.1 dropped: 16+ Listed sprint rule, 3yo all-types extension)
 8. ONE selection per race maximum
 9. Score EVERY runner in target races before picking. No shortcuts
 10. NEVER override our RPR/TS pick entirely for Timeform. When they disagree, keep BOTH as contenders
@@ -99,7 +101,7 @@ Before returning your JSON, mentally verify EACH selection against:
 2. NO EVENS-OR-SHORTER: Any selection priced ≤ 1/1? → Replace with NB
 3. SPOTLIGHT: Any negative language? → Downgrade
 4. ALL RUNNERS SCORED: Did you consider every horse? → If not, go back
-5. NAP 78+: Does NAP score 78+? → If not, nap_index = -1
+5. NAP 75+: Does NAP score 75+? → If not, nap_index = -1
 6. QUICK TURNAROUND: NH horse back ≤7 days? → Respect the -5 penalty
 7. SYSTEM-RESISTANT: Big-field final? → E/W only, never NAP
 8. TS-VETO: Any 🚫 TS-VETO horse in SEL/NAP role? → Cap at NB. Any ⛔ TS-ELIMINATE horse picked? → Drop entirely
@@ -152,8 +154,8 @@ Return ONLY valid JSON:
 }
 
 CRITICAL:
-- Rank 1 = NAP (MUST score 78+), Rank 2 = Next Best overall
-- If nothing scores 78+, set nap_index to -1
+- Rank 1 = NAP (MUST score 75+), Rank 2 = Next Best overall
+- If nothing scores 75+, set nap_index to -1
 - Include nb_score and next_best.adjusted_score — the compliance gate needs these
 - The compliance_log MUST show all 7 checks with PASS/FAIL and action taken
 - Each-way: 8+ runners AND 3/1+ odds
@@ -286,19 +288,8 @@ def _is_system_resistant_race(race_name: str, num_runners: int,
     is_flat = "flat" in type_lower or ("hurdle" not in name_lower and "chase" not in name_lower and "bumper" not in name_lower)
     if is_early_season and is_3yo_only and is_handicap and is_flat and num_runners >= 12:
         return True
-    # Big-field Listed/Group sprints (16+ runners, 5f-7f). Added 27 Apr 2026
-    # after Naas 7:15 Anglesey Lodge Equine Hospital Woodlands Stakes — 16
-    # runners, 5f, Listed. Bucanero Fuerte (10/3 fav, raw RPR 118 highest)
-    # finished 5th; Mission Central won at 13/2. Bot NAP'd Bucanero at 84
-    # score; the figures-leader-gets-mugged-in-chaos pattern matches big-field
-    # handicap finals.
-    is_listed = "listed" in pattern_lower or "listed" in name_lower
-    is_group = pattern_lower.startswith("group") or "group" in pattern_lower
-    is_pattern_race = is_listed or is_group or class_lower == "class 1"
-    distance_f = _parse_distance_to_furlongs(distance)
-    is_sprint = 0 < distance_f <= 7.0
-    if is_pattern_race and is_sprint and num_runners >= 16:
-        return True
+    # v4.1 (1 May 2026): big-field Listed/Group sprints rule removed —
+    # added too late (27 Apr) and didn't earn its keep in v4.1 paper-trade
     return False
 
 
@@ -334,91 +325,12 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
         if not nb_score and sel.get("nb_score"):
             nb_score = sel["nb_score"]
 
-        # CHECK 0 (new 21 Apr 2026): TS-VETO / TS-ELIMINATE flags from scorer
-        # Look up the selection's RunnerScore by lowered name
+        # v4.1: TS-veto and TS-eliminate gates removed (1 May 2026).
+        # 8 vetoed winners/placers in 9 days made this rule a clear drag.
+        # Speed figures already factored into score directly; no extra gate.
         sel_sr = scored_lookup.get(horse.lower()) if horse else None
         nb_horse = nb.get("horse", "") if nb else ""
         nb_sr = scored_lookup.get(nb_horse.lower()) if nb_horse else None
-
-        if sel_sr is not None:
-            if getattr(sel_sr, "ts_eliminate", False):
-                # Eliminate — swap with NB if NB isn't also eliminated
-                if nb_sr is not None and not getattr(nb_sr, "ts_eliminate", False):
-                    # Swap SEL ↔ NB (same swap mechanics as CHECK 1)
-                    sel["horse"], nb["horse"] = nb["horse"], sel["horse"]
-                    sel["odds_guide"], nb["odds_guide"] = nb["odds_guide"], sel["odds_guide"]
-                    sel["adjusted_score"], nb["adjusted_score"] = (
-                        nb.get("adjusted_score", nb_score), score
-                    )
-                    old_sel_reasoning = sel.get("reasoning", [])
-                    old_nb_reasoning = nb.get("reasoning", "")
-                    sel["reasoning"] = (
-                        [old_nb_reasoning] if isinstance(old_nb_reasoning, str)
-                        else old_nb_reasoning
-                    )
-                    nb["reasoning"] = (
-                        "; ".join(old_sel_reasoning)
-                        if isinstance(old_sel_reasoning, list)
-                        else old_sel_reasoning
-                    )
-                    compliance_fixes.append(
-                        f"TS-ELIMINATE: {horse} had TS 10+ below OR and surface "
-                        f"change — swapped with NB {nb['horse']}"
-                    )
-                    logger.info(
-                        f"Compliance: TS-eliminate {horse} → {sel['horse']}"
-                    )
-                    # Refresh locals for downstream checks
-                    horse = sel["horse"]
-                    odds = sel["odds_guide"]
-                    score = sel["adjusted_score"]
-                    nb_horse = nb.get("horse", "")
-                    nb_odds = nb.get("odds_guide", "")
-                    nb_score = nb.get("adjusted_score", 0)
-                    sel_sr = scored_lookup.get(horse.lower())
-                    nb_sr = scored_lookup.get(nb_horse.lower()) if nb_horse else None
-                else:
-                    compliance_fixes.append(
-                        f"TS-ELIMINATE WARNING: {horse} flagged but no clean NB to swap"
-                    )
-            elif getattr(sel_sr, "ts_veto", False):
-                # Cap at NB role — swap with NB
-                if nb_sr is not None and not getattr(nb_sr, "ts_veto", False):
-                    sel["horse"], nb["horse"] = nb["horse"], sel["horse"]
-                    sel["odds_guide"], nb["odds_guide"] = nb["odds_guide"], sel["odds_guide"]
-                    sel["adjusted_score"], nb["adjusted_score"] = (
-                        nb.get("adjusted_score", nb_score), score
-                    )
-                    old_sel_reasoning = sel.get("reasoning", [])
-                    old_nb_reasoning = nb.get("reasoning", "")
-                    sel["reasoning"] = (
-                        [old_nb_reasoning] if isinstance(old_nb_reasoning, str)
-                        else old_nb_reasoning
-                    )
-                    nb["reasoning"] = (
-                        "; ".join(old_sel_reasoning)
-                        if isinstance(old_sel_reasoning, list)
-                        else old_sel_reasoning
-                    )
-                    compliance_fixes.append(
-                        f"TS-VETO: {horse} had TS 10+ below OR — capped at NB role, "
-                        f"swapped with {nb['horse']}"
-                    )
-                    logger.info(
-                        f"Compliance: TS-veto {horse} → {sel['horse']}"
-                    )
-                    horse = sel["horse"]
-                    odds = sel["odds_guide"]
-                    score = sel["adjusted_score"]
-                    nb_horse = nb.get("horse", "")
-                    nb_odds = nb.get("odds_guide", "")
-                    nb_score = nb.get("adjusted_score", 0)
-                    sel_sr = scored_lookup.get(horse.lower())
-                    nb_sr = scored_lookup.get(nb_horse.lower()) if nb_horse else None
-                else:
-                    compliance_fixes.append(
-                        f"TS-VETO WARNING: {horse} flagged but no clean NB to swap"
-                    )
 
         # CHECK 1: NB SWAP RULE (BIDIRECTIONAL)
         # (a) VALUE SWAP: scores close AND NB is 2x+ the odds → chase value
@@ -504,28 +416,17 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                 )
                 logger.warning(f"Compliance: Sub-evens {sel['horse']} but no NB to replace")
 
-    # CHECK 5: NAP THRESHOLD
+    # CHECK 5: NAP THRESHOLD (v4.1: 75+, was 78+ in v3)
     nap_idx = selections.get("nap_index", 0)
     if nap_idx >= 0 and nap_idx < len(sels):
         nap_score = sels[nap_idx].get("adjusted_score", 0)
         nap_horse = sels[nap_idx].get("horse", "")
-        nap_sr = scored_lookup.get(nap_horse.lower()) if nap_horse else None
         if nap_score < NAP_THRESHOLD:
             selections["nap_index"] = -1
             compliance_fixes.append(
                 f"NAP BLOCKED: Score {nap_score} < {NAP_THRESHOLD} threshold. Flat stakes today"
             )
             logger.info(f"Compliance: NAP blocked, score {nap_score} < {NAP_THRESHOLD}")
-        elif nap_sr is not None and (
-            getattr(nap_sr, "ts_veto", False) or getattr(nap_sr, "ts_eliminate", False)
-        ):
-            # TS-veto cannot be NAP regardless of score
-            selections["nap_index"] = -1
-            compliance_fixes.append(
-                f"NAP BLOCKED: {nap_horse} carries TS-veto flag "
-                f"(TS 10+ below OR) — flat stakes today"
-            )
-            logger.info(f"Compliance: NAP blocked by TS-veto for {nap_horse}")
 
     # CHECK 7: SYSTEM-RESISTANT RACES — demote to E/W, prevent NAP
     for i, sel in enumerate(sels):
@@ -727,7 +628,7 @@ def _run_claude_judgement(top_races_data: list, meetings: list[Meeting],
             f"(ranked by top-runner score). Return ONE selection per race — "
             f"so exactly {len(top_races_data)} entries in the selections array. "
             f"This OVERRIDES the system prompt's '4 selections' default. "
-            f"NAP/NB-of-day discipline still applies (NAP must score 78+ or set "
+            f"NAP/NB-of-day discipline still applies (NAP must score 75+ or set "
             f"nap_index to -1). Each entry needs its own next_best."
         )
         parts.append("")
@@ -788,18 +689,11 @@ def _run_claude_judgement(top_races_data: list, meetings: list[Meeting],
             sig_str = f" SIGNALS: [{', '.join(signals)}]" if signals else ""
             compound = " ⚡COMPOUND" if len(signals) >= 3 else ""
 
-            # Selection-role flags from scorer (21 Apr 2026)
-            role_flags = []
-            if sr.ts_eliminate:
-                role_flags.append("⛔ TS-ELIMINATE (TS 10+ below OR + surface change)")
-            elif sr.ts_veto:
-                role_flags.append("🚫 TS-VETO (TS 10+ below OR — NB max, never SEL/NAP)")
-            if sr.force_nb_minimum:
-                role_flags.append("⭐ DUAL-EDGE (biggest RPR AND biggest TS gap above OR — force NB minimum)")
-            role_str = f"\n    ROLE FLAGS: {' | '.join(role_flags)}" if role_flags else ""
+            # v4.1 (1 May 2026): role flags removed — TS-veto and dual-edge
+            # rules were dropped after 8 vetoed winners and 0W from dual-edge
 
             parts.append(
-                f"\n  {r.name} | Score: {sr.total:.0f}/100{role_str}"
+                f"\n  {r.name} | Score: {sr.total:.0f}/100"
                 f"\n    ODDS: {r.odds or 'NO PRICE'} (Bet365, live from API)"
                 f"\n    Form: {r.form or '?'} | Age: {r.age or '?'} | "
                 f"Wt: {r.weight_stones or '?'}-{r.weight_pounds or '?'} | "
@@ -885,7 +779,7 @@ def _programmatic_cherry_pick(top_races_data: list, n_races: int = None) -> dict
         race = pick["race"]
         meeting = pick["meeting"]
 
-        conf = "HIGH" if sel.total >= 78 else "MEDIUM-HIGH" if sel.total >= 72 else "MEDIUM"
+        conf = "HIGH" if sel.total >= 75 else "MEDIUM-HIGH" if sel.total >= 68 else "MEDIUM"
         selections.append({
             "rank": i + 1,
             "horse": sel.runner.name,
@@ -954,7 +848,7 @@ def format_selections_telegram(selections: dict) -> str:
 
     msg = ""
 
-    # NAP (only if something scored 78+)
+    # NAP (only if something scored 75+, v4.1 threshold)
     if sels and nap_idx >= 0:
         nap = sels[nap_idx] if nap_idx < len(sels) else sels[0]
         msg += "═══════════════════════════\n"
@@ -973,7 +867,7 @@ def format_selections_telegram(selections: dict) -> str:
         msg += "═══════════════════════════\n"
         msg += "⚠️ *NO NAP TODAY*\n"
         msg += "═══════════════════════════\n"
-        msg += "Nothing scored 78+. Flat 1pt stakes across all selections.\n"
+        msg += "Nothing scored 75+. Flat 1pt stakes across all selections.\n"
 
     # Next Best (rank 2)
     if len(sels) >= 2 and nap_idx >= 0:

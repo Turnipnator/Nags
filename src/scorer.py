@@ -34,15 +34,6 @@ class RunnerScore:
     judgement_adjustment: float = 0.0  # Added by analyst module
     judgement_notes: str = ""
     final_score: float = 0.0
-    # Selection-role constraints set by scoring rules:
-    # ts_veto: TS 10+ below OR — cap at NB role, never SEL/NAP. If surface
-    #   also changing, eliminate entirely (ts_eliminate=True).
-    # ts_eliminate: TS deficit + surface change = exclude from all roles.
-    # force_nb_minimum: set by dual-edge rule (biggest RPR AND biggest TS
-    #   gap above OR in the field) — horse must be at least NB of the race.
-    ts_veto: bool = False
-    ts_eliminate: bool = False
-    force_nb_minimum: bool = False
 
     def __post_init__(self):
         if self.edge_details is None:
@@ -141,27 +132,6 @@ class Scorer:
         score.weight_score = self._score_weight(runner, race)
         score.jockey_score = self._score_jockey(runner, race)
         score.trainer_score = self._score_trainer(runner, race)
-
-        # TS-below-OR veto flag — feeds the analyst compliance gate
-        or_val = runner.official_rating or 0
-        ts = runner.speed_figure or 0
-        if or_val and ts and (or_val - ts) >= 10:
-            score.ts_veto = True
-            # Surface change on top of deficit = eliminate entirely.
-            # We only have today's surface; the "change" test uses past
-            # runs via recent_results if present.
-            today_surface_lc = (race.surface or "").lower()
-            today_is_aw = ("aw" in today_surface_lc
-                           or "polytrack" in today_surface_lc
-                           or "tapeta" in today_surface_lc
-                           or "all-weather" in today_surface_lc)
-            recent = runner.recent_results or []
-            if recent:
-                # If most recent run's surface differs from today → eliminate
-                last = recent[0]
-                last_is_aw = bool(last.get("is_aw"))
-                if last_is_aw != today_is_aw:
-                    score.ts_eliminate = True
 
         score.edge_bonus = self._score_edges(runner, race, score)
 
@@ -371,10 +341,10 @@ class Scorer:
         """
         Score speed figures (max 8 points). Uses better of RPR or TS gap vs OR.
 
-        TS-BELOW-OR VETO (added 21 Apr 2026 after Yorkshire Glory 8/8 LAST
-        at 3/1F). When TS is 10+ below OR, zero the speed score regardless
-        of RPR. The ts_veto flag is set on the RunnerScore later in
-        _score_runner so the analyst can cap role at NB (never SEL/NAP).
+        TS-BELOW-OR penalty: when TS is 10+ below OR, zero the speed score.
+        v4.1 (1 May 2026) dropped the role-veto that this fed (capping SEL→NB);
+        the score penalty stays as a scoring nuance, but no longer blocks
+        the horse from being SEL/NAP if other factors compensate.
         """
         or_val = runner.official_rating or 0
         ts = runner.speed_figure or 0
@@ -383,8 +353,7 @@ class Scorer:
         if not or_val or (not ts and not rpr):
             return 3.0  # Neutral
 
-        # TS 10+ below OR is an authoritative red flag — zero speed score.
-        # The ts_veto flag (set in _score_runner) prevents SEL/NAP role.
+        # TS 10+ below OR zeros speed factor (but no longer role-vetoes)
         if ts and (or_val - ts) >= 10:
             return 0.0
 
@@ -784,43 +753,6 @@ class Scorer:
                 elif lead >= 5:
                     bonus += 1.0
                     details.append(f"Speed edge: best fig {my_best} leads by {lead}pts +1")
-
-        # DUAL-EDGE BONUS (added 21 Apr 2026 after Have Secret 4/1 winner).
-        # When the SAME runner has the biggest RPR gap above OR AND the
-        # biggest TS gap above OR in the field, that's a compound speed-
-        # figure edge we cannot keep scoring down for "class rising" or
-        # similar soft reasons. Force into NB minimum role via the flag.
-        my_or = runner.official_rating or 0
-        my_rpr = runner.rpr or 0
-        my_ts = runner.speed_figure or 0
-        if my_or and my_rpr and my_ts:
-            my_rpr_gap = my_rpr - my_or
-            my_ts_gap = my_ts - my_or
-            if my_rpr_gap > 0 and my_ts_gap > 0:
-                # Check if this runner leads the field on BOTH metrics
-                leads_rpr = True
-                leads_ts = True
-                for r in race.runners:
-                    if r.name == runner.name:
-                        continue
-                    r_or = r.official_rating or 0
-                    if not r_or:
-                        continue
-                    if r.rpr:
-                        if (r.rpr - r_or) >= my_rpr_gap:
-                            leads_rpr = False
-                    if r.speed_figure:
-                        if (r.speed_figure - r_or) >= my_ts_gap:
-                            leads_ts = False
-                    if not (leads_rpr or leads_ts):
-                        break
-                if leads_rpr and leads_ts:
-                    bonus += 5.0
-                    details.append(
-                        f"DUAL-EDGE: biggest RPR gap (+{my_rpr_gap}) AND biggest "
-                        f"TS gap (+{my_ts_gap}) above OR — +5 (force NB minimum)"
-                    )
-                    score.force_nb_minimum = True
 
         # SIGNAL COMPOUNDING: 3+ intent signals = +5 additional
         if intent_signals >= 3:
