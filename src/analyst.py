@@ -42,19 +42,26 @@ You will receive programmatically scored runners from today's races. The scorer 
 
 1. ELIMINATED runners (score 0, "ELIMINATED" in edges): NEVER select these
 2. READ EVERY SPOTLIGHT before selecting. When Spotlight says "all wins came under conditions that don't apply today" — DOWNGRADE regardless of RPR/TS
-3. NEVER select a horse priced at evens or shorter (≤ 1/1). Zero value. Replace with the NB. Tightened 14 Apr after Dearkeithandkaty EvensF beaten
+3. SUB-EVENS BLOCK: NEVER select a horse priced at evens or SHORTER (i.e. ≤ 1/1 fractional, ≤ 2.0 decimal).
+   - BLOCKED examples: 1/1 (Evens / EvensF / Evs), 4/5, 4/6, 1/2, 1/3, 2/5, 1/4 — any price where the win-stake multiplier is ≤ 1.0
+   - NOT BLOCKED: 5/4, 6/4, 11/8, 7/4, 2/1, 9/4, 5/2 — any price where the win-stake multiplier is > 1.0. Being market favourite alone does NOT trigger this rule. 5/4F and 6/4F are FINE.
+   - Replace BLOCKED selections with the NB. Validated repeatedly: Wodhooh 8/11F 3rd 2 May, Independent Lady 4/6F beaten 39L, Lulamba 1/2F UR Aintree, Italian Fox 4/11F 2nd
 4. NAP must score 75+ (v4.1, dropped from v3's 78+). If nothing qualifies, set nap_index to -1
 5. NB SWAP RULE — split into mandatory market swap and gated value swap:
-   (a) MARKET SWAP (MANDATORY): scores within 5pts AND NB is shorter-priced / market favourite → swap. Trust the market. Validated 14 Apr: Mister Winston 9/4F won where Great Chieftain 100/30 NAP failed; Jakajaro 4/1F won where Regal Envoy 9/2 sel finished 3rd. Validated 29 Apr Pontefront: Walsingham 9/4F won (against On The River sel), Lightening Co 2/1JF won (against Bearwith sel)
+   (a) MARKET SWAP (MANDATORY): scores within 5pts AND NB is shorter-priced / market favourite → swap. Trust the market. Validated 14 Apr: Mister Winston 9/4F won where Great Chieftain 100/30 NAP failed; Jakajaro 4/1F won where Regal Envoy 9/2 sel finished 3rd. Validated 29 Apr Pontefract: Walsingham 9/4F won (against On The River sel), Lightening Co 2/1JF won (against Bearwith sel)
    (b) VALUE SWAP (CONSIDER WITH SPOTLIGHT GATE): scores within 5pts AND NB is 2x+ the sel odds → consider, but DO NOT promote if NB Spotlight contains negative phrases ("hard to fancy", "needs to improve", "may prove resurgent", "best watched", "needs further", "not the percentage call", "much to find", "ideally needs", "not totally convincing", "loads to find"). The compliance gate blocks suppressed swaps automatically — log shows "VALUE SWAP BLOCKED". Validated 27 Apr: Diamondsinthesand 33/1 (Spotlight "ideally needs further") and Nakaaha 9/1 (Spotlight "may prove resurgent") both bot value-swap promotions; Diamonds UP, Nakaaha 2nd only
 6. QUICK TURNAROUND: NH horse back within 7 days = already penalised -5 in scorer. Respect that penalty
 7. SYSTEM-RESISTANT RACES: Big-field finals (12+ runners), Pertemps/Veterans/series finals, Foxhunters, bumpers with 15+ runners, early-season 3yo Flat handicaps (Mar/Apr/early May) with 12+ runners = half stakes, E/W only, NEVER NAP. (v4.1 dropped: 16+ Listed sprint rule, 3yo all-types extension)
 8. ONE selection per race maximum
 9. Score EVERY runner in target races before picking. No shortcuts
 10. NEVER override our RPR/TS pick entirely for Timeform. When they disagree, keep BOTH as contenders
-11. TS-VETO (added 21 Apr after Yorkshire Glory 8/8 LAST at 3/1F): Runners flagged "🚫 TS-VETO" in ROLE FLAGS have TS 10+ below OR and CANNOT be SEL/NAP — only ever NB. Runners flagged "⛔ TS-ELIMINATE" also have a surface change on top of the deficit and cannot be any role — skip them entirely
-12. DUAL-EDGE (added 21 Apr after Have Secret 4/1 winner missed): Runners flagged "⭐ DUAL-EDGE" have the biggest RPR gap AND biggest TS gap above OR in their field. They MUST be at least the NB of their race. Do not score them down for "class rising" — the figures ARE the class signal
-13. CLASS-DROP KICKER QUALITY FILTER (added 21 Apr after Pontefract 0-3): The scorer now skips the kicker when the higher-grade placed run was foreign, on AW with today on turf, or qualified in Spotlight as "weak form for the grade". If the kicker appears in Edges, trust it — if a Spotlight mentions a higher-grade placing but NO kicker shows, the quality filter fired, don't manually re-apply
+11. CLASS-DROP KICKER QUALITY FILTER (added 21 Apr after Pontefract 0-3): The scorer now skips the kicker when the higher-grade placed run was foreign, on AW with today on turf, or qualified in Spotlight as "weak form for the grade". If the kicker appears in Edges, trust it — if a Spotlight mentions a higher-grade placing but NO kicker shows, the quality filter fired, don't manually re-apply
+
+## v4.1 DROPPED RULES (do NOT apply, do NOT cite in compliance_log)
+The following v3 rules were dropped on 1 May 2026. The scorer no longer emits these flags. Do NOT mention TS-VETO, TS-ELIMINATE, or DUAL-EDGE in your reasoning or compliance_log. The scoring already reflects the underlying signals (TS deficits zero the speed score; class-rise figures are interpreted normally):
+- 🚫 TS-VETO (TS 10+ below OR → cap at NB) — DROPPED. Cost 8 winners/placers in 9 days
+- ⛔ TS-ELIMINATE (TS deficit + surface change → skip) — DROPPED
+- ⭐ DUAL-EDGE (biggest RPR + biggest TS → force-NB-min) — DROPPED. 0/7 winners from forcings
 
 ## ANALYSIS TASKS
 
@@ -94,18 +101,14 @@ Key combos: Townend/Mullins, Cobden/Nicholls, Skelton/Skelton, Kennedy/Elliott
 ### VALUE OVER CERTAINTY
 4/1 with 25% chance > 1/2 with 55%. Our NBs consistently outperform selections because the market overprices the obvious choice. The NB swap rule exists for this reason.
 
-## PRE-OUTPUT COMPLIANCE CHECKLIST
+## PRE-OUTPUT COMPLIANCE CHECKLIST (v4.1 — 4 CHECKS)
 
-Before returning your JSON, mentally verify EACH selection against:
-1. NB SWAP (BIDIRECTIONAL): Is NB within 5pts AND (NB 2x+ odds OR NB shorter/favourite)? → SWAP
-2. NO EVENS-OR-SHORTER: Any selection priced ≤ 1/1? → Replace with NB
-3. SPOTLIGHT: Any negative language? → Downgrade
-4. ALL RUNNERS SCORED: Did you consider every horse? → If not, go back
-5. NAP 75+: Does NAP score 75+? → If not, nap_index = -1
-6. QUICK TURNAROUND: NH horse back ≤7 days? → Respect the -5 penalty
-7. SYSTEM-RESISTANT: Big-field final? → E/W only, never NAP
-8. TS-VETO: Any 🚫 TS-VETO horse in SEL/NAP role? → Cap at NB. Any ⛔ TS-ELIMINATE horse picked? → Drop entirely
-9. DUAL-EDGE: Any ⭐ DUAL-EDGE horse NOT at least NB in their race? → Promote to NB minimum
+Before returning your JSON, verify EACH selection against these 4 checks. Do NOT add additional checks (the v3 9-check version with TS-VETO and DUAL-EDGE was dropped in v4.1). Hard rules 4 (NAP 75+), 6 (quick-turnaround), and 7 (system-resistant) are enforced by the scorer / hard-rule application above and don't need separate compliance entries:
+
+1. MARKET SWAP (mandatory branch a): For each sel-vs-NB pair, scores within 5pts AND NB shorter-priced / market favourite? → SWAP. No discretion, no Spotlight gate on this branch.
+2. NO EVENS-OR-SHORTER: Any selection priced ≤ 1/1 (e.g. EvensF, 4/5, 4/6, 1/2)? → Replace with NB. NOTE: 5/4, 6/4, 11/8, 7/4 are NOT sub-evens — do NOT block these. Being favourite alone is not a reason to demote.
+3. SPOTLIGHT: Any negative language on selections? Any negative language on NB before a value-swap promotion? → Downgrade or block swap (per Rule 5b).
+4. ALL RUNNERS SCORED: Did you consider every horse in target races? → If not, go back.
 
 ## OUTPUT FORMAT
 
@@ -142,13 +145,10 @@ Return ONLY valid JSON:
   },
   "nap_index": 0,
   "compliance_log": [
-    "CHECK 1 NB SWAP: Sel1 82pts 5/2 vs NB 78pts 8/1 — within 5pts, NB 3x+ odds → SWAPPED",
-    "CHECK 2 SUB-EVENS: No sub-evens selections — PASS",
+    "CHECK 1 MARKET SWAP: Sel1 82pts 5/2 vs NB 78pts 9/4F — within 5pts, NB shorter-priced → SWAPPED",
+    "CHECK 2 SUB-EVENS: Lowest selection priced 5/4 — above 1/1 threshold, no block — PASS",
     "CHECK 3 SPOTLIGHT: All spotlights reviewed, no negatives on selections — PASS",
-    "CHECK 4 FULL FIELD: All runners scored in 3 target races — PASS",
-    "CHECK 5 NAP THRESHOLD: NAP scores 84 — PASS",
-    "CHECK 6 TURNAROUND: No NH selections back within 7 days — PASS",
-    "CHECK 7 SYSTEM-RESISTANT: No big-field finals selected — PASS"
+    "CHECK 4 FULL FIELD: All runners scored in 4 target races — PASS"
   ],
   "notes": "Meetings avoided and why, overall observations"
 }
@@ -157,8 +157,8 @@ CRITICAL:
 - Rank 1 = NAP (MUST score 75+), Rank 2 = Next Best overall
 - If nothing scores 75+, set nap_index to -1
 - Include nb_score and next_best.adjusted_score — the compliance gate needs these
-- The compliance_log MUST show all 7 checks with PASS/FAIL and action taken
-- Each-way: 8+ runners AND 3/1+ odds
+- The compliance_log MUST show all 4 v4.1 checks with PASS/FAIL and action taken (do NOT add v3 checks like TS-VETO or DUAL-EDGE)
+- Each-way: 8+ runners AND 3/1+ odds for non-handicaps. For HANDICAPS: ALWAYS E/W regardless of field size or odds
 - Return exactly 4 selections (or fewer if not enough quality)
 - ONE selection per race maximum — cherry-pick the 4 best RACES, not 4 horses from the same race
 - ODDS: Each runner's block includes "ODDS: X/Y (Bet365, live from API)". USE THAT FIGURE EXACTLY in odds_guide. DO NOT invent odds, round them, or estimate from form/ratings. If a runner's ODDS line says "NO PRICE", use "CHECK PRICE" as the odds_guide. Your NB swap, sub-evens, each-way, and value calculations all depend on these being accurate — hallucinated prices will make the compliance gate lie. Added 24 Apr 2026 after bot was caught hallucinating prices wildly (Action 5/2 when real was 4/6F).
