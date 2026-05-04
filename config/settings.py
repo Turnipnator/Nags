@@ -125,11 +125,16 @@ EACH_WAY_THRESHOLD = 55
 PASS_THRESHOLD = 55
 
 # Staking (in points)
+# Updated 4 May 2026: race SEL 1.0 → 0.75 and race_nb 0.5 → 0.75. Per-race
+# total stays at 1.5pt — risk redistributed from SEL slot (where picks
+# have systematically lost) to race NB slot (where 5/1+ winners have been
+# rescuing both cards: Lyrical Song 10/1, Must Believe 17/2, Diamont Katie
+# 100/30, Place De La Nation 10/1, Layla Liz 12/1 etc).
 STAKING = {
     "nap": 2.0,
     "next_best": 1.5,
-    "selection": 1.0,
-    "race_nb": 0.5,
+    "selection": 0.75,
+    "race_nb": 0.75,
     "double_nap_nb": 1.0,
     "treble_top3": 0.5,
 }

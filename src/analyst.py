@@ -923,10 +923,10 @@ def format_selections_telegram(selections: dict) -> str:
     msg += "═══════════════════════════\n"
     if nap_idx >= 0:
         msg += "NAP: 2pts | NB: 1.5pts\n"
-        msg += "Selections 3-4: 1pt each\n"
+        msg += "Selections 3-4: 0.75pt each\n"
     else:
         msg += "All selections: 1pt flat (no NAP today)\n"
-    msg += "Race NBs: 0.5pt each\n"
+    msg += "Race NBs: 0.75pt each\n"
     if nap_idx >= 0:
         msg += "Double: 1pt\n"
     msg += "\n⏰ *TAKE EARLY PRICES - NEVER SP*"
