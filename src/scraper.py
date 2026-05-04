@@ -25,6 +25,50 @@ from config.settings import (
 logger = logging.getLogger(__name__)
 
 
+# Regex of Spotlight phrases that suggest the horse has higher-grade form
+# worth looking up for the class-drop kicker quality filter. Added 4 May
+# 2026 after Bank Holiday Monday rate-limit storm (8.6min enrichment phase,
+# 604 calls all 429'd at least once). Filters per-horse /horses/{id}/results
+# lookups to only runners with Spotlight signal of recent pattern/Listed/
+# Class 1-2 form or named big handicaps. Cuts ~85% of API calls. Cases
+# without a Spotlight signal cannot trigger the class-drop kicker anyway —
+# the kicker only fires on placed runs in higher-grade races.
+_CLASS_DROP_SPOTLIGHT_PATTERNS = re.compile(
+    r"\b("
+    # Pattern race grades
+    r"group\s*[123]|grade\s*[123]|g[123]\b|listed|class\s*[12]|"
+    # Named big NH handicaps and championship races
+    r"pertemps|coral\s*cup|eider|imperial\s*cup|martin\s*pipe|"
+    r"fred\s*winter|lanzarote|betfair\s*hurdle|coral\s*gold\s*cup|"
+    r"welsh\s*national|scottish\s*national|irish\s*national|"
+    r"kim\s*muir|grand\s*annual|champion\s*bumper|champion\s*hurdle|"
+    r"champion\s*chase|gold\s*cup|stayers['\s]*hurdle|queen\s*mother|"
+    r"mares['\s]*hurdle|supreme\s*novices|"
+    # Named big Flat handicaps and Classics
+    r"ascot\s*stakes|northumberland\s*plate|ebor|stewards['\s]*cup|"
+    r"lincoln|derby|oaks|st\.?\s*leger|guineas|king\s*george|"
+    r"juddmonte|sussex\s*stakes|king['\s]*stand|diamond\s*jubilee|"
+    r"breeders['\s]*cup|prix\s*de|cambridgeshire|cesarewitch|"
+    r"wokingham|britannia|royal\s*hunt\s*cup|heritage\s*handicap|"
+    r"albert\s*bartlett|christmas\s*hurdle|ryanair|"
+    r"king\s*edward|princess\s*margaret|cheveley\s*park|"
+    r"middle\s*park|dewhurst|fred\s*darling|nell\s*gwyn|"
+    r"craven|greenham|lockinge"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _spotlight_suggests_class_drop(spotlight: Optional[str]) -> bool:
+    """Return True if the Spotlight contains language suggesting recent
+    higher-grade form, warranting a /horses/{id}/results lookup for the
+    class-drop kicker quality filter. Filters lookup volume aggressively —
+    horses with no Spotlight signal cannot trigger the kicker anyway."""
+    if not spotlight:
+        return False
+    return bool(_CLASS_DROP_SPOTLIGHT_PATTERNS.search(spotlight))
+
+
 @dataclass
 class Runner:
     name: str
@@ -398,18 +442,39 @@ class Scraper:
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        runners = []
+        candidates = []
+        skipped_no_signal = 0
         for m in meetings:
             for race in m.races:
                 for runner in race.runners:
-                    if runner.horse_id and runner.recent_results is None:
-                        runners.append(runner)
+                    if not runner.horse_id or runner.recent_results is not None:
+                        continue
+                    # Pre-filter: only horses with Spotlight indicating recent
+                    # higher-grade form warrant the lookup. Added 4 May 2026
+                    # to cut 429-storm enrichment volume by ~85%. Horses
+                    # without the signal get an empty recent_results list
+                    # (same shape as a failed lookup) — the scorer's
+                    # class-drop kicker won't fire either way.
+                    if _spotlight_suggests_class_drop(runner.comment):
+                        candidates.append(runner)
+                    else:
+                        runner.recent_results = []
+                        skipped_no_signal += 1
 
-        if not runners:
+        if not candidates:
+            if skipped_no_signal:
+                logger.info(
+                    f"Enrichment skipped: 0/{skipped_no_signal} runners had "
+                    f"class-drop Spotlight signal"
+                )
             return
 
-        logger.info(f"Enriching {len(runners)} runners with recent race classes...")
+        logger.info(
+            f"Enriching {len(candidates)} runners with recent race classes "
+            f"(skipped {skipped_no_signal} with no class-drop Spotlight signal)..."
+        )
         start = time_mod.time()
+        runners = candidates
 
         def _fetch(runner):
             try:
