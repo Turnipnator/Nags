@@ -46,7 +46,7 @@ You will receive programmatically scored runners from today's races. The scorer 
    - BLOCKED examples: 1/1 (Evens / EvensF / Evs), 4/5, 4/6, 1/2, 1/3, 2/5, 1/4 — any price where the win-stake multiplier is ≤ 1.0
    - NOT BLOCKED: 5/4, 6/4, 11/8, 7/4, 2/1, 9/4, 5/2 — any price where the win-stake multiplier is > 1.0. Being market favourite alone does NOT trigger this rule. 5/4F and 6/4F are FINE.
    - Replace BLOCKED selections with the NB. Validated repeatedly: Wodhooh 8/11F 3rd 2 May, Independent Lady 4/6F beaten 39L, Lulamba 1/2F UR Aintree, Italian Fox 4/11F 2nd
-4. NAP must score 75+ (v4.1, dropped from v3's 78+). If nothing qualifies, set nap_index to -1
+4. NAP must score 75+ AND be priced ≤ 10/1 (decimal multiplier ≤ 10.0). NB-of-day must be priced ≤ 14/1. Added 5 May 2026 after Fairlawn Flyer NAP 22/1 (149-day absence) lost at Ffos Las — a high score in a competitive field does NOT translate to a high win probability; the market's price IS information. If your top scorer is priced longer than 10/1, set nap_index to -1 (flat stakes day) and treat the horse as a race SEL only. Same logic for NB-of-day at 14/1. The compliance gate enforces both caps.
 5. NB SWAP RULE — only the market branch is enforced; value swap is YOUR judgment at scoring time:
    (a) MARKET SWAP (MANDATORY): scores within 5pts AND NB is shorter-priced / market favourite → swap. Trust the market. Validated 14 Apr: Mister Winston 9/4F won where Great Chieftain 100/30 NAP failed; Jakajaro 4/1F won where Regal Envoy 9/2 sel finished 3rd. Validated 29 Apr Pontefract: Walsingham 9/4F won (against On The River sel), Lightening Co 2/1JF won (against Bearwith sel). The compliance gate auto-fires this branch.
    (b) VALUE SWAP (DO NOT AUTO-PROMOTE): scores within 5pts AND NB is 2x+ the sel odds is NOT a deterministic swap trigger. Pick the SEL/NB ordering you genuinely believe before the gate runs — if you want the longer-priced horse as SEL, score it higher. Do NOT cite "value swap" in compliance_log as a swap action; the gate will not enforce it and an LLM-side promotion to a longer price needs an explicit positive case in the reasoning. CLAUDE.md frames this as "consider only" — judgment beats rule. Failure mode validated 5 May 2026: Lion Of The Desert 10/3 (sel) WON, Kylenoe Dancer 10/1 (NB, value-swapped to SEL) was a non-runner. Earlier failures 27 Apr Bath: Diamondsinthesand UP, Nakaaha 2nd. Negative-Spotlight phrases ("hard to fancy", "needs to improve", "may prove resurgent", "best watched", "needs further", "ideally needs", etc.) remain a reason to DOWNGRADE that horse on its own merits — not a reason to swap.
@@ -187,6 +187,28 @@ def _is_sub_evens(odds_str: str) -> bool:
     block line."""
     dec = _parse_odds_to_decimal(odds_str)
     return 0 < dec <= 1.0
+
+
+# Price caps (added 5 May 2026 after Fairlawn Flyer 22/1 NAP at Ffos Las
+# scored 81 despite 149-day absence — the framework had no way to
+# express "the market thinks this is a 4% shot, so 'NAP' is wrong even
+# if our score is high". A high score in a competitive field doesn't
+# translate to a high win probability; the market's pricing is
+# information.
+NAP_MAX_DECIMAL = 10.0   # 10/1 fractional → 11.0 decimal multiplier; cap at 10/1 (multiplier 10.0)
+NB_MAX_DECIMAL = 14.0    # 14/1 fractional
+
+
+def _exceeds_nap_cap(odds_str: str) -> bool:
+    """Returns True when odds are LONGER than 10/1 (NAP cap)."""
+    dec = _parse_odds_to_decimal(odds_str)
+    return dec > NAP_MAX_DECIMAL
+
+
+def _exceeds_nb_cap(odds_str: str) -> bool:
+    """Returns True when odds are LONGER than 14/1 (NB-of-day cap)."""
+    dec = _parse_odds_to_decimal(odds_str)
+    return dec > NB_MAX_DECIMAL
 
 
 # Spotlight gate phrases for value-swap rule (added 27 Apr 2026 after
@@ -416,6 +438,40 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                 f"NAP BLOCKED: Score {nap_score} < {NAP_THRESHOLD} threshold. Flat stakes today"
             )
             logger.info(f"Compliance: NAP blocked, score {nap_score} < {NAP_THRESHOLD}")
+
+    # CHECK 6: PRICE CAPS (added 5 May 2026 after Fairlawn Flyer 22/1 NAP
+    # at Ffos Las scored 81 despite 149-day absence — score 81 in a
+    # competitive 10-runner Class 4 chase ≠ 25%+ win probability. Market at
+    # 22/1 implies ~4%. The market's pricing is information; a high score
+    # alone is not enough to override it for the NAP/NB-of-day slot.)
+    nap_idx = selections.get("nap_index", -1)
+    if nap_idx >= 0 and nap_idx < len(sels):
+        nap_odds = sels[nap_idx].get("odds_guide", "")
+        if _exceeds_nap_cap(nap_odds):
+            old_horse = sels[nap_idx].get("horse", "")
+            selections["nap_index"] = -1
+            compliance_fixes.append(
+                f"NAP PRICE CAP: {old_horse} ({nap_odds}) exceeds 10/1 NAP cap. "
+                f"Demoted to race SEL — flat stakes day, no NAP"
+            )
+            logger.info(f"Compliance: NAP cap blocked {old_horse} at {nap_odds}")
+
+    # NB-of-day price cap (selection at index 1 by convention)
+    if len(sels) > 1:
+        nb_of_day = sels[1]
+        nb_odds = nb_of_day.get("odds_guide", "")
+        if _exceeds_nb_cap(nb_odds):
+            old_horse = nb_of_day.get("horse", "")
+            # Demote NB-of-day to a regular race SEL stake — leave the
+            # selection in place but flag in compliance log so the staking
+            # block treats it like a 0.75pt race SEL rather than a 1.5pt
+            # NB-of-day. The display formatter inspects this fix line.
+            nb_of_day["nb_price_capped"] = True
+            compliance_fixes.append(
+                f"NB-OF-DAY PRICE CAP: {old_horse} ({nb_odds}) exceeds 14/1 NB cap. "
+                f"Demoted to race SEL stake (0.75pt) — flagged for staking block"
+            )
+            logger.info(f"Compliance: NB-of-day cap blocked {old_horse} at {nb_odds}")
 
     # CHECK 7: SYSTEM-RESISTANT RACES — demote to E/W, prevent NAP
     for i, sel in enumerate(sels):
@@ -910,13 +966,20 @@ def format_selections_telegram(selections: dict) -> str:
     msg += "\n═══════════════════════════\n"
     msg += "💷 *STAKING*\n"
     msg += "═══════════════════════════\n"
+    nb_capped = (
+        len(selections) > 1
+        and selections[1].get("nb_price_capped", False)
+    )
     if nap_idx >= 0:
-        msg += "NAP: 2pts | NB: 1.5pts\n"
+        if nb_capped:
+            msg += "NAP: 2pts | NB-of-day capped at 14/1: 0.75pt (race SEL stake)\n"
+        else:
+            msg += "NAP: 2pts | NB: 1.5pts\n"
         msg += "Selections 3-4: 0.75pt each\n"
     else:
         msg += "All selections: 1pt flat (no NAP today)\n"
     msg += "Race NBs: 0.75pt each\n"
-    if nap_idx >= 0:
+    if nap_idx >= 0 and not nb_capped:
         msg += "Double: 1pt\n"
     msg += "\n⏰ *TAKE EARLY PRICES - NEVER SP*"
 
