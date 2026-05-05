@@ -967,8 +967,8 @@ def format_selections_telegram(selections: dict) -> str:
     msg += "💷 *STAKING*\n"
     msg += "═══════════════════════════\n"
     nb_capped = (
-        len(selections) > 1
-        and selections[1].get("nb_price_capped", False)
+        len(sels) > 1
+        and sels[1].get("nb_price_capped", False)
     )
     if nap_idx >= 0:
         if nb_capped:
