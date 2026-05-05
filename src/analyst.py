@@ -47,9 +47,9 @@ You will receive programmatically scored runners from today's races. The scorer 
    - NOT BLOCKED: 5/4, 6/4, 11/8, 7/4, 2/1, 9/4, 5/2 — any price where the win-stake multiplier is > 1.0. Being market favourite alone does NOT trigger this rule. 5/4F and 6/4F are FINE.
    - Replace BLOCKED selections with the NB. Validated repeatedly: Wodhooh 8/11F 3rd 2 May, Independent Lady 4/6F beaten 39L, Lulamba 1/2F UR Aintree, Italian Fox 4/11F 2nd
 4. NAP must score 75+ (v4.1, dropped from v3's 78+). If nothing qualifies, set nap_index to -1
-5. NB SWAP RULE — split into mandatory market swap and gated value swap:
-   (a) MARKET SWAP (MANDATORY): scores within 5pts AND NB is shorter-priced / market favourite → swap. Trust the market. Validated 14 Apr: Mister Winston 9/4F won where Great Chieftain 100/30 NAP failed; Jakajaro 4/1F won where Regal Envoy 9/2 sel finished 3rd. Validated 29 Apr Pontefract: Walsingham 9/4F won (against On The River sel), Lightening Co 2/1JF won (against Bearwith sel)
-   (b) VALUE SWAP (CONSIDER WITH SPOTLIGHT GATE): scores within 5pts AND NB is 2x+ the sel odds → consider, but DO NOT promote if NB Spotlight contains negative phrases ("hard to fancy", "needs to improve", "may prove resurgent", "best watched", "needs further", "not the percentage call", "much to find", "ideally needs", "not totally convincing", "loads to find"). The compliance gate blocks suppressed swaps automatically — log shows "VALUE SWAP BLOCKED". Validated 27 Apr: Diamondsinthesand 33/1 (Spotlight "ideally needs further") and Nakaaha 9/1 (Spotlight "may prove resurgent") both bot value-swap promotions; Diamonds UP, Nakaaha 2nd only
+5. NB SWAP RULE — only the market branch is enforced; value swap is YOUR judgment at scoring time:
+   (a) MARKET SWAP (MANDATORY): scores within 5pts AND NB is shorter-priced / market favourite → swap. Trust the market. Validated 14 Apr: Mister Winston 9/4F won where Great Chieftain 100/30 NAP failed; Jakajaro 4/1F won where Regal Envoy 9/2 sel finished 3rd. Validated 29 Apr Pontefract: Walsingham 9/4F won (against On The River sel), Lightening Co 2/1JF won (against Bearwith sel). The compliance gate auto-fires this branch.
+   (b) VALUE SWAP (DO NOT AUTO-PROMOTE): scores within 5pts AND NB is 2x+ the sel odds is NOT a deterministic swap trigger. Pick the SEL/NB ordering you genuinely believe before the gate runs — if you want the longer-priced horse as SEL, score it higher. Do NOT cite "value swap" in compliance_log as a swap action; the gate will not enforce it and an LLM-side promotion to a longer price needs an explicit positive case in the reasoning. CLAUDE.md frames this as "consider only" — judgment beats rule. Failure mode validated 5 May 2026: Lion Of The Desert 10/3 (sel) WON, Kylenoe Dancer 10/1 (NB, value-swapped to SEL) was a non-runner. Earlier failures 27 Apr Bath: Diamondsinthesand UP, Nakaaha 2nd. Negative-Spotlight phrases ("hard to fancy", "needs to improve", "may prove resurgent", "best watched", "needs further", "ideally needs", etc.) remain a reason to DOWNGRADE that horse on its own merits — not a reason to swap.
 6. QUICK TURNAROUND: NH horse back within 7 days = already penalised -5 in scorer. Respect that penalty
 7. SYSTEM-RESISTANT RACES: Big-field finals (12+ runners), Pertemps/Veterans/series finals, Foxhunters, bumpers with 15+ runners, early-season 3yo Flat handicaps (Mar/Apr/early May) with 12+ runners = half stakes, E/W only, NEVER NAP. (v4.1 dropped: 16+ Listed sprint rule, 3yo all-types extension)
 8. ONE selection per race maximum
@@ -107,7 +107,7 @@ Before returning your JSON, verify EACH selection against these 4 checks. Do NOT
 
 1. MARKET SWAP (mandatory branch a): For each sel-vs-NB pair, scores within 5pts AND NB shorter-priced / market favourite? → SWAP. No discretion, no Spotlight gate on this branch.
 2. NO EVENS-OR-SHORTER: Any selection priced ≤ 1/1 (e.g. EvensF, 4/5, 4/6, 1/2)? → Replace with NB. NOTE: 5/4, 6/4, 11/8, 7/4 are NOT sub-evens — do NOT block these. Being favourite alone is not a reason to demote.
-3. SPOTLIGHT: Any negative language on selections? Any negative language on NB before a value-swap promotion? → Downgrade or block swap (per Rule 5b).
+3. SPOTLIGHT: Any negative language on selections? → Downgrade. Negative language on NB is NOT a swap trigger; it's a reason to leave the NB where it is.
 4. ALL RUNNERS SCORED: Did you consider every horse in target races? → If not, go back.
 
 ## OUTPUT FORMAT
@@ -332,14 +332,20 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
         nb_horse = nb.get("horse", "") if nb else ""
         nb_sr = scored_lookup.get(nb_horse.lower()) if nb_horse else None
 
-        # CHECK 1: NB SWAP RULE (BIDIRECTIONAL)
-        # (a) VALUE SWAP: scores close AND NB is 2x+ the odds → chase value
-        #     GATED 27 Apr 2026: suppress when NB Spotlight contains negative
-        #     phrases (Diamondsinthesand "ideally needs further" UP and
-        #     Nakaaha "may prove resurgent" 2nd-only validated the gate)
-        # (b) MARKET SWAP: scores close AND NB is shorter-priced / favourite → trust market
-        # Both validated 14 Apr 2026: Great Chieftain NAP (100/30) vs Mister
-        # Winston NB (9/4F) — NB won; Regal Envoy (9/2) vs Jakajaro (4/1F) — NB won
+        # CHECK 1: MARKET SWAP RULE (mandatory only — Branch a)
+        # Scores within 5pts AND NB is shorter-priced / market favourite → swap.
+        # Trust the market; it is integrating information the analyst missed.
+        # Validated 14 Apr 2026: Mister Winston 9/4F won (Great Chieftain NAP
+        # 100/30 9th); Jakajaro 4/1F won (Regal Envoy 9/2 3rd). Validated
+        # 29 Apr Pontefract: Walsingham 9/4F won, Lightening Co 2/1JF won.
+        #
+        # Value swap (Branch b — longer-priced NB) is INTENTIONALLY NOT
+        # enforced here. CLAUDE.md v4.1 makes value swap "consider only"
+        # for the analyst at scoring time — it is NOT a deterministic
+        # compliance action. Validated 5 May 2026: bot promoted Kylenoe
+        # Dancer 10/1 over Lion Of The Desert 10/3 (clean Spotlight, gate
+        # passed) — LotD WON, KD was a non-runner. Removing the auto-fire
+        # restores the asymmetric design from CLAUDE.md.
         if nb and nb_score > 0 and score > 0:
             score_gap = abs(score - nb_score)
             sel_dec = _parse_odds_to_decimal(odds)
@@ -347,24 +353,7 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
 
             swap_reason = None
             if score_gap <= 5 and sel_dec > 0 and nb_dec > 0:
-                if nb_dec >= (sel_dec * 2):
-                    # Apply Spotlight gate to value swap only
-                    nb_comment = ""
-                    if nb_sr is not None and getattr(nb_sr, "runner", None) is not None:
-                        nb_comment = getattr(nb_sr.runner, "comment", "") or ""
-                    if _has_negative_spotlight(nb_comment):
-                        compliance_fixes.append(
-                            f"VALUE SWAP BLOCKED: {nb_horse} ({nb_odds}) has "
-                            f"negative Spotlight — keeping {horse} ({odds}) as SEL. "
-                            f"Spotlight gate added 27 Apr"
-                        )
-                        logger.info(
-                            f"Compliance: value swap blocked, {nb_horse} has "
-                            f"negative Spotlight"
-                        )
-                    else:
-                        swap_reason = "NB 2x+ odds (value swap)"
-                elif nb_dec < sel_dec:
+                if nb_dec < sel_dec:
                     swap_reason = "NB shorter-priced / market favourite (market swap)"
 
             if swap_reason:
