@@ -58,6 +58,8 @@ You will receive programmatically scored runners from today's races. The scorer 
 11. CLASS-DROP KICKER QUALITY FILTER (added 21 Apr after Pontefract 0-3): The scorer now skips the kicker when the higher-grade placed run was foreign, on AW with today on turf, or qualified in Spotlight as "weak form for the grade". If the kicker appears in Edges, trust it — if a Spotlight mentions a higher-grade placing but NO kicker shows, the quality filter fired, don't manually re-apply
 12. AW CLASS 5/6 WEIGHT-RISE BLOCKER (added 7 May 2026 — Rule A): For AW Class 5 / Class 6 HANDICAPS only — if a horse has 3+ wins in last 5 starts AND is rising +7lb or more from its last winning mark, CAP AT NB ROLE (never NAP). +10lb or more = SKIP entirely. Class 5/6 AW horses are mature/exposed and recycle through the same pool; the handicapper's rise punishes the streak. Spotlight phrases like "this Xlb higher mark", "raised Xlb", "now Xlb higher", "Xlb higher than" indicate the rise — read the figure and apply the rule. Validated 7 May 2026: Roaring Ralph (-22111 form, +9lb in same Class 5) NAP'd 9/2 → 7th of 11. Rule does NOT apply at Group/Listed/big-handicap level — improvers there absorb rises.
 13. AW CLASS 5/6 NO-NAP-ON-FAVOURITE (added 7 May 2026 — Rule B): For AW Class 5 / Class 6 HANDICAPS only — if your top scorer is also the betting market favourite (or co-favourite within ~5%) AND priced at sub-4/1 (decimal ≤ 4.0), set nap_index to -1 (no NAP that day, flat stakes). At sub-4/1 in compressed AW C5/6 form the framework's score adds nothing the market hasn't already priced — ROI is bookmaker-margin negative by construction. Validated 7 May 2026: Shades Of May 3/1F top scorer 78 → 8th of 10. NAP at 4/1+ is allowed only with explicit market-divergence note in reasoning. Rule does NOT apply at higher class — Brighterdaysahead 9/4 with TS+35, Madara, Saddadd 2/1 are legitimate short-priced NAPs that overwhelmed market consensus.
+14. C5/C6 SPOTLIGHT RED-FLAG DOWNGRADE (added 8 May 2026): For ANY Class 5 / Class 6 race (AW or turf), if a selection's Spotlight contains any of the following phrases, REDUCE adjusted_score by 5: "doesn't have a great record when fresh", "has plenty to prove", "on dangerous mark", "may need this", "down the list", "well held", "needs to bounce back", "not easy to predict", "out of sorts", "bit to prove". These are analyst hedges in compressed-pool handicaps where the figures look better than the prospects. Validated 8 May 2026: Mark's Choice (Ripon 6:45 C5) Spotlight "doesn't have a great record when fresh" was missed; bot scored 79, finished 6th at 9/2.
+15. C5/C6 SCORE-VS-MARKET GATE (added 8 May 2026 — Option B): In ANY Class 5 / Class 6 race, if a selection has adjusted_score ≥ 80 AND best decimal odds ≥ 9.0 (8/1 or longer), the score is structurally divergent from the market's view. Demote to race SEL stake (0.75pt) — never NAP, never NB-of-day. The framework score scale is not calibrated to win probability in compressed-pool handicaps; an 80+ score at 8/1+ means the rubric is over-counting recyclable-pool form, not finding edge. Pattern: Fairlawn Flyer 22/1 (score 81, Ffos Las 5 May), Star Prospect 88, Precise (3 May, score 104) — all score-market divergence in low-class form-compressed handicaps. Gate enforced by compliance backstop CHECK 6. Scope: Class 5/6 only — at C4 and above the score-market relationship is more reliable.
 
 ## v4.1 DROPPED RULES (do NOT apply, do NOT cite in compliance_log)
 The following v3 rules were dropped on 1 May 2026. The scorer no longer emits these flags. Do NOT mention TS-VETO, TS-ELIMINATE, or DUAL-EDGE in your reasoning or compliance_log. The scoring already reflects the underlying signals (TS deficits zero the speed score; class-rise figures are interpreted normally):
@@ -103,9 +105,9 @@ Key combos: Townend/Mullins, Cobden/Nicholls, Skelton/Skelton, Kennedy/Elliott
 ### VALUE OVER CERTAINTY
 4/1 with 25% chance > 1/2 with 55%. Our NBs consistently outperform selections because the market overprices the obvious choice. The NB swap rule exists for this reason.
 
-## PRE-OUTPUT COMPLIANCE CHECKLIST (v4.1 — 5 CHECKS)
+## PRE-OUTPUT COMPLIANCE CHECKLIST (v4.1 — 6 CHECKS)
 
-Before returning your JSON, verify EACH selection against these 5 checks. Do NOT add additional checks (the v3 9-check version with TS-VETO and DUAL-EDGE was dropped in v4.1). Hard rules 4 (NAP 75+), 6 (quick-turnaround), and 7 (system-resistant) are enforced by the scorer / hard-rule application above and don't need separate compliance entries:
+Before returning your JSON, verify EACH selection against these 6 checks. Do NOT add additional checks (the v3 9-check version with TS-VETO and DUAL-EDGE was dropped in v4.1). Hard rules 4 (NAP 75+), 6 (quick-turnaround), and 7 (system-resistant) are enforced by the scorer / hard-rule application above and don't need separate compliance entries:
 
 1. MARKET SWAP (mandatory branch a): For each sel-vs-NB pair, scores within 5pts AND NB shorter-priced / market favourite? → SWAP. No discretion, no Spotlight gate on this branch.
 2. NO EVENS-OR-SHORTER: Any selection priced ≤ 1/1 (e.g. EvensF, 4/5, 4/6, 1/2)? → Replace with NB. NOTE: 5/4, 6/4, 11/8, 7/4 are NOT sub-evens — do NOT block these. Being favourite alone is not a reason to demote.
@@ -115,6 +117,7 @@ Before returning your JSON, verify EACH selection against these 5 checks. Do NOT
    (a) Weight-rise blocker (Rule A): if 3+ wins in last 5 starts AND Spotlight indicates a +7lb or larger rise from last winning mark, cap at NB role; +10lb or more, skip the selection. Phrases to scan: "this Xlb higher mark", "raised Xlb", "Xlb higher than", "now Xlb higher".
    (b) No-NAP-on-favourite (Rule B): if the NAP candidate is also the market favourite at sub-4/1 (decimal ≤ 4.0) — set nap_index to -1 (flat stakes day). Top scorer = market consensus at sub-4/1 in compressed C5/6 form has zero edge over market. NAP at 4/1+ allowed only with explicit market-divergence note.
    Compliance gate enforces both as backstop. Rules do NOT apply at Group/Listed/big-handicap level.
+6. C5/C6 SCORE-VS-MARKET GATE (added 8 May 2026 — Option B): For each selection in ANY Class 5 / Class 6 race (AW or turf), if adjusted_score ≥ 80 AND best decimal odds ≥ 9.0 (8/1 or longer), demote to race SEL stake (no NAP, no NB-of-day). The score-vs-market divergence is too wide to trust — the framework over-counts recyclable-pool form in C5/C6. Compliance gate enforces as backstop.
 
 ## OUTPUT FORMAT
 
@@ -308,6 +311,18 @@ def _is_aw_c5_or_c6_handicap(race_name: str, meta: dict) -> bool:
     if "handicap" not in rn and "handicap" not in rt:
         return False
     return _is_aw_course(meta.get("course", ""), meta.get("surface", ""))
+
+
+def _is_c5_or_c6_any(meta: dict) -> bool:
+    """True if this race is Class 5 or Class 6 on ANY surface (AW or turf).
+    Used by the score-vs-market gate added 8 May 2026 (Option B). The gate
+    is broader than the AW-specific weight-rise/no-NAP-on-fav rules — score
+    inflation in compressed-pool C5/C6 form happens on turf evening cards
+    too (Mark's Choice, Novamay at Ripon 8 May)."""
+    if not meta:
+        return False
+    rc = (meta.get("race_class") or "").lower()
+    return "class 5" in rc or "class 6" in rc
 
 
 def _count_wins_in_last_5(form: str) -> int:
@@ -640,6 +655,56 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                     logger.info(
                         f"Compliance: AW C5/6 no-NAP-fav blocked {nap_horse} at {nap_odds}"
                     )
+
+    # CHECK 10: C5/C6 SCORE-VS-MARKET GATE (Option B — added 8 May 2026)
+    # In ANY Class 5 / Class 6 race (AW or turf), if a selection scores 80+
+    # AND the best decimal odds are 9.0+ (i.e. 8/1 or longer), the score
+    # has materially diverged from the market's view. The framework over-
+    # counts recyclable-pool form in compressed C5/C6 fields — an 80+ score
+    # at 8/1+ means rubric inflation, not edge. Demote NAP / NB-of-day /
+    # promoted-NB to race SEL stake. Pattern: Fairlawn Flyer 22/1 score 81
+    # (Ffos Las 5 May), Star Prospect 88, Precise score 104, Novamay 86
+    # at 16/1 (Ripon 8 May, C4 — note this gate is C5/C6-scoped per user
+    # decision; the validation comes from the broader pattern). Premium-
+    # class scoring (Class 1-4, Listed, Group, Grade) keeps full ceiling.
+    for i, sel in enumerate(sels):
+        horse = sel.get("horse", "")
+        score = sel.get("adjusted_score", 0)
+        odds = sel.get("odds_guide", "")
+        dec = _parse_odds_to_decimal(odds)
+        race_name = sel.get("race_name", "")
+        meta = race_meta_lookup.get((race_name or "").lower(), {})
+        if not _is_c5_or_c6_any(meta):
+            continue
+        if score < 80:
+            continue
+        if dec < 9.0:
+            continue
+        # Score-market divergence — demote to race SEL stake
+        was_nap = selections.get("nap_index") == i
+        if was_nap:
+            selections["nap_index"] = -1
+            compliance_fixes.append(
+                f"C5/C6 SCORE-MARKET GATE: {horse} ({odds}, score {score}) — "
+                f"score 80+ AND price 8/1+ in C5/C6 race; NAP blocked "
+                f"(score-market divergence too wide)"
+            )
+            logger.info(
+                f"Compliance: C5/C6 score-market gate blocked NAP for {horse} "
+                f"at {odds} (score {score})"
+            )
+        # Flag NB-of-day (rank 2 in selections is bot's NB-of-day convention)
+        if i == 1:
+            sel["nb_price_capped"] = True
+            compliance_fixes.append(
+                f"C5/C6 SCORE-MARKET GATE: {horse} ({odds}, score {score}) — "
+                f"NB-of-day demoted to race SEL stake (0.75pt) — "
+                f"score-market divergence too wide for 1.5pt slot"
+            )
+            logger.info(
+                f"Compliance: C5/C6 score-market gate demoted NB-of-day "
+                f"{horse} to race SEL stake"
+            )
 
     # CHECK 7: SYSTEM-RESISTANT RACES — demote to E/W, prevent NAP
     for i, sel in enumerate(sels):
