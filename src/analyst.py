@@ -60,6 +60,8 @@ You will receive programmatically scored runners from today's races. The scorer 
 13. AW CLASS 5/6 NO-NAP-ON-FAVOURITE (added 7 May 2026 — Rule B): For AW Class 5 / Class 6 HANDICAPS only — if your top scorer is also the betting market favourite (or co-favourite within ~5%) AND priced at sub-4/1 (decimal ≤ 4.0), set nap_index to -1 (no NAP that day, flat stakes). At sub-4/1 in compressed AW C5/6 form the framework's score adds nothing the market hasn't already priced — ROI is bookmaker-margin negative by construction. Validated 7 May 2026: Shades Of May 3/1F top scorer 78 → 8th of 10. NAP at 4/1+ is allowed only with explicit market-divergence note in reasoning. Rule does NOT apply at higher class — Brighterdaysahead 9/4 with TS+35, Madara, Saddadd 2/1 are legitimate short-priced NAPs that overwhelmed market consensus.
 14. C5/C6 SPOTLIGHT RED-FLAG DOWNGRADE (added 8 May 2026): For ANY Class 5 / Class 6 race (AW or turf), if a selection's Spotlight contains any of the following phrases, REDUCE adjusted_score by 5: "doesn't have a great record when fresh", "has plenty to prove", "on dangerous mark", "may need this", "down the list", "well held", "needs to bounce back", "not easy to predict", "out of sorts", "bit to prove". These are analyst hedges in compressed-pool handicaps where the figures look better than the prospects. Validated 8 May 2026: Mark's Choice (Ripon 6:45 C5) Spotlight "doesn't have a great record when fresh" was missed; bot scored 79, finished 6th at 9/2.
 15. C5/C6 SCORE-VS-MARKET GATE (added 8 May 2026 — Option B): In ANY Class 5 / Class 6 race, if a selection has adjusted_score ≥ 80 AND best decimal odds ≥ 9.0 (8/1 or longer), the score is structurally divergent from the market's view. Demote to race SEL stake (0.75pt) — never NAP, never NB-of-day. The framework score scale is not calibrated to win probability in compressed-pool handicaps; an 80+ score at 8/1+ means the rubric is over-counting recyclable-pool form, not finding edge. Pattern: Fairlawn Flyer 22/1 (score 81, Ffos Las 5 May), Star Prospect 88, Precise (3 May, score 104) — all score-market divergence in low-class form-compressed handicaps. Gate enforced by compliance backstop CHECK 6. Scope: Class 5/6 only — at C4 and above the score-market relationship is more reliable.
+16. CLASS FLOOR FOR BOT SELECTIONS (added 9 May 2026 — Option X): The bot now only sends races to Claude judgement that meet a class floor — Group/Listed/Grade always pass; Flat Class 4+ passes; NH Class 3+ passes. Flat Class 5/6/7 and NH Class 4/5 are blocked at the race-ranking step. This is enforced before scoring reaches the LLM, so by the time you see target races they have already passed. Reason: forensic comparison across 7-9 May showed three consecutive bleed days in low-class evening handicaps (AW C5/6 Southwell, turf C4/5 Ripon, NH C5 Hexham) while manual focus on premium class banked +£94 over the same window. The framework's score scale doesn't translate to win probability in compressed-pool fields. If you receive a low-class race in target_races (rare — would only happen via Group/Listed override), apply heightened scepticism.
+17. GOING STABILITY GATE (added 9 May 2026 — Option Y): For each course in target races, the bot compares current going against a persisted snapshot from earlier the same day. If shift ≥ 2 ordinal steps (Good→Soft = 2 steps, Good→Heavy = 3) within 12 hours, ALL selections on that course are demoted: NAP blocked, force E/W. Also, if `going_detailed` contains volatility phrases ("in places", "watered", "watering", "showers", "becoming softer", "drying out"), apply the same demotion. Reason: Hexham 9 May 2026 — cards forecast "Good", races ran on "Soft" — Gardener NAP 5/1 (TS125 earned on Good) finished 5th of 6, Saracen Beau and Snapaudaciaheros both PU. Compliance gate enforces as backstop CHECK 11.
 
 ## v4.1 DROPPED RULES (do NOT apply, do NOT cite in compliance_log)
 The following v3 rules were dropped on 1 May 2026. The scorer no longer emits these flags. Do NOT mention TS-VETO, TS-ELIMINATE, or DUAL-EDGE in your reasoning or compliance_log. The scoring already reflects the underlying signals (TS deficits zero the speed score; class-rise figures are interpreted normally):
@@ -105,9 +107,9 @@ Key combos: Townend/Mullins, Cobden/Nicholls, Skelton/Skelton, Kennedy/Elliott
 ### VALUE OVER CERTAINTY
 4/1 with 25% chance > 1/2 with 55%. Our NBs consistently outperform selections because the market overprices the obvious choice. The NB swap rule exists for this reason.
 
-## PRE-OUTPUT COMPLIANCE CHECKLIST (v4.1 — 6 CHECKS)
+## PRE-OUTPUT COMPLIANCE CHECKLIST (v4.1 — 7 CHECKS)
 
-Before returning your JSON, verify EACH selection against these 6 checks. Do NOT add additional checks (the v3 9-check version with TS-VETO and DUAL-EDGE was dropped in v4.1). Hard rules 4 (NAP 75+), 6 (quick-turnaround), and 7 (system-resistant) are enforced by the scorer / hard-rule application above and don't need separate compliance entries:
+Before returning your JSON, verify EACH selection against these 7 checks. Do NOT add additional checks (the v3 9-check version with TS-VETO and DUAL-EDGE was dropped in v4.1). Hard rules 4 (NAP 75+), 6 (quick-turnaround), 7 (system-resistant), and 16 (class floor) are enforced by the scorer / hard-rule application above and don't need separate compliance entries:
 
 1. MARKET SWAP (mandatory branch a): For each sel-vs-NB pair, scores within 5pts AND NB shorter-priced / market favourite? → SWAP. No discretion, no Spotlight gate on this branch.
 2. NO EVENS-OR-SHORTER: Any selection priced ≤ 1/1 (e.g. EvensF, 4/5, 4/6, 1/2)? → Replace with NB. NOTE: 5/4, 6/4, 11/8, 7/4 are NOT sub-evens — do NOT block these. Being favourite alone is not a reason to demote.
@@ -118,6 +120,7 @@ Before returning your JSON, verify EACH selection against these 6 checks. Do NOT
    (b) No-NAP-on-favourite (Rule B): if the NAP candidate is also the market favourite at sub-4/1 (decimal ≤ 4.0) — set nap_index to -1 (flat stakes day). Top scorer = market consensus at sub-4/1 in compressed C5/6 form has zero edge over market. NAP at 4/1+ allowed only with explicit market-divergence note.
    Compliance gate enforces both as backstop. Rules do NOT apply at Group/Listed/big-handicap level.
 6. C5/C6 SCORE-VS-MARKET GATE (added 8 May 2026 — Option B): For each selection in ANY Class 5 / Class 6 race (AW or turf), if adjusted_score ≥ 80 AND best decimal odds ≥ 9.0 (8/1 or longer), demote to race SEL stake (no NAP, no NB-of-day). The score-vs-market divergence is too wide to trust — the framework over-counts recyclable-pool form in C5/C6. Compliance gate enforces as backstop.
+7. GOING STABILITY (added 9 May 2026 — Option Y): For each selection's course, check going against the snapshot from earlier today (compliance gate handles the snapshot lookup). If going has shifted by ≥ 2 ordinal steps within 12h (Good→Soft = 2; Good→Heavy = 3), set each_way to true and remove NAP — picks on this course are flat-stakes-only. Also flag races where `going_detailed` contains volatility phrases ("in places", "watered", "showers", "becoming softer", "drying out"). Validated by Hexham 9 May 2026 going-shift bleed.
 
 ## OUTPUT FORMAT
 
@@ -323,6 +326,157 @@ def _is_c5_or_c6_any(meta: dict) -> bool:
         return False
     rc = (meta.get("race_class") or "").lower()
     return "class 5" in rc or "class 6" in rc
+
+
+def _meets_class_floor(race) -> bool:
+    """Class floor for bot race-selection (Option X — added 9 May 2026).
+
+    Three days running (7 May Southwell AW C5/6, 8 May Ripon turf C4/5,
+    9 May Hexham NH small-field evening) the bot bled when racing in
+    low-class compressed-pool fields. Manual focus on premium-class racing
+    over the same window banked +£94. The bleed is meeting selection, not
+    scoring — the framework's score scale doesn't translate to win
+    probability in low-class form-compressed handicaps.
+
+    Floor:
+      - Group / Listed / Grade always pass
+      - Flat: Class 4 or higher (Class 5, 6, 7 blocked)
+      - NH (hurdle/chase/bumper/NH Flat): Class 3 or higher (Class 4, 5
+        blocked)
+    """
+    rc = (race.race_class or "").lower()
+    rt = (race.race_type or "").lower()
+    # Group/Listed/Grade always pass
+    if any(g in rc for g in ("group", "grade", "listed")):
+        return True
+    is_nh = any(t in rt for t in ("hurdle", "chase", "nh flat", "bumper", "national hunt"))
+    if is_nh:
+        if "class 4" in rc or "class 5" in rc:
+            return False
+    else:
+        if "class 5" in rc or "class 6" in rc or "class 7" in rc:
+            return False
+    return True
+
+
+# --- Going stability check (Option Y — added 9 May 2026) ---
+
+_GOING_SCALE = {
+    "firm": 1,
+    "good to firm": 2,
+    "good": 3,
+    "good to soft": 4,
+    "yielding": 4,
+    "yielding to soft": 4,
+    "good to yielding": 3,
+    "soft": 5,
+    "soft to heavy": 5,
+    "heavy": 6,
+    "very soft": 6,
+    # AW
+    "standard": 3,
+    "standard to slow": 4,
+    "slow": 5,
+    "fast": 2,
+}
+
+
+def _going_step(going: str) -> int:
+    """Map a going string to an ordinal step (1=Firm ... 6=Heavy). Unknown
+    going returns 3 (treated as 'Good' baseline). Used by the going
+    stability check to compute drift between snapshots."""
+    if not going:
+        return 3
+    g = going.strip().lower()
+    if g in _GOING_SCALE:
+        return _GOING_SCALE[g]
+    # Try prefix match
+    for key, val in _GOING_SCALE.items():
+        if g.startswith(key) or key in g:
+            return val
+    return 3
+
+
+def _going_volatility_phrases(going_detailed: str) -> bool:
+    """True if going_detailed text contains volatility hedge phrases.
+    These suggest the going may shift during the day (rain, watering,
+    patches). Used to soft-flag picks at run time even before any drift
+    snapshot comparison."""
+    if not going_detailed:
+        return False
+    g = going_detailed.lower()
+    phrases = [
+        "in places", "in the back straight", "watered",
+        "watering", "could change", "rain forecast", "showers",
+        "becoming softer", "drying out",
+    ]
+    return any(p in g for p in phrases)
+
+
+_GOING_SNAPSHOT_PATH = "/app/data/going_snapshot.json"
+
+
+def _load_going_snapshot() -> dict:
+    """Load the persisted going snapshot. Maps date_course → {going, ts}."""
+    try:
+        import os, json
+        if not os.path.exists(_GOING_SNAPSHOT_PATH):
+            return {}
+        with open(_GOING_SNAPSHOT_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_going_snapshot(snapshot: dict) -> None:
+    """Persist the going snapshot. Best-effort; failures don't break flow."""
+    try:
+        import os, json
+        os.makedirs(os.path.dirname(_GOING_SNAPSHOT_PATH), exist_ok=True)
+        with open(_GOING_SNAPSHOT_PATH, "w") as f:
+            json.dump(snapshot, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Could not save going snapshot: {e}")
+
+
+def _check_going_drift(course: str, current_going: str,
+                       date_str: str = None) -> tuple[int, str]:
+    """Compare current going against the persisted snapshot for this
+    course on this date. Returns (drift_steps, prior_going). Updates the
+    snapshot with the current value either way.
+
+    drift_steps == 0 if no prior snapshot or going unchanged.
+    drift_steps >= 2 is a 'meaningful shift' per the going stability rule
+    — caller should demote selections on this course (no NAP, force E/W).
+    Snapshots older than 12 hours are ignored (treated as fresh)."""
+    import datetime
+    if date_str is None:
+        date_str = datetime.date.today().isoformat()
+    key = f"{date_str}_{(course or '').lower()}"
+    snapshot = _load_going_snapshot()
+    prior = snapshot.get(key)
+    drift = 0
+    prior_going = ""
+    if prior:
+        try:
+            prior_ts = datetime.datetime.fromisoformat(prior.get("ts", ""))
+            now = datetime.datetime.now()
+            age_hours = (now - prior_ts).total_seconds() / 3600.0
+            if age_hours <= 12:
+                prior_going = prior.get("going", "")
+                drift = abs(_going_step(current_going) - _going_step(prior_going))
+        except Exception:
+            pass
+    # Always update snapshot
+    snapshot[key] = {
+        "going": current_going or "",
+        "ts": datetime.datetime.now().isoformat(),
+    }
+    # Prune entries older than 7 days
+    cutoff = (datetime.datetime.now() - datetime.timedelta(days=7)).isoformat()
+    snapshot = {k: v for k, v in snapshot.items() if v.get("ts", "") >= cutoff}
+    _save_going_snapshot(snapshot)
+    return drift, prior_going
 
 
 def _count_wins_in_last_5(form: str) -> int:
@@ -706,6 +860,64 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                 f"{horse} to race SEL stake"
             )
 
+    # CHECK 11: GOING STABILITY (Option Y — added 9 May 2026)
+    # Compare current going against the persisted snapshot for the same
+    # course on the same date. If shift ≥ 2 ordinal steps within 12h
+    # (Good→Soft = 2 steps; Good→Heavy = 3), demote selections on this
+    # course: no NAP, force E/W, log it. Also flag races where the
+    # going_detailed text contains volatility phrases ("in places",
+    # "watered", "showers", etc.) — soft demote at run time even before
+    # any drift snapshot exists. Triggered by Hexham 9 May 2026: cards
+    # forecast "Good", races ran on Soft, all bot picks failed.
+    drift_courses_done = set()
+    for i, sel in enumerate(sels):
+        race_name = sel.get("race_name", "")
+        meta = race_meta_lookup.get((race_name or "").lower(), {})
+        course = (meta.get("course") or "").strip()
+        going = meta.get("going", "")
+        going_detailed = meta.get("going_detailed", "")
+        if not course:
+            continue
+        # Drift check (once per course)
+        course_key = course.lower()
+        drift = 0
+        prior_going = ""
+        if course_key not in drift_courses_done:
+            drift, prior_going = _check_going_drift(course, going)
+            drift_courses_done.add(course_key)
+        # Volatility phrase check (every selection)
+        is_volatile = _going_volatility_phrases(going_detailed)
+        # Action: if drift >= 2 OR volatility phrase present, demote
+        if drift >= 2 or is_volatile:
+            horse = sel.get("horse", "")
+            sel["each_way"] = True
+            if selections.get("nap_index") == i:
+                selections["nap_index"] = -1
+                if drift >= 2:
+                    compliance_fixes.append(
+                        f"GOING DRIFT: {course} going was '{prior_going}' "
+                        f"({_going_step(prior_going)}-step), now '{going}' "
+                        f"({_going_step(going)}-step) — drift {drift} steps. "
+                        f"NAP {horse} blocked, picks on this course forced E/W"
+                    )
+                else:
+                    compliance_fixes.append(
+                        f"GOING VOLATILITY: {course} going_detailed flags "
+                        f"instability ('{going_detailed[:60]}'). NAP {horse} "
+                        f"blocked, picks on this course forced E/W"
+                    )
+                logger.info(
+                    f"Compliance: going-stability gate blocked NAP for {horse} "
+                    f"at {course} (drift={drift}, volatile={is_volatile})"
+                )
+            elif drift >= 2 or is_volatile:
+                # Non-NAP selection, just log the E/W force
+                compliance_fixes.append(
+                    f"GOING WATCH: {horse} ({course}) — going "
+                    f"{'drifted ' + str(drift) + ' steps' if drift >= 2 else 'flagged volatile'}, "
+                    f"forced E/W"
+                )
+
     # CHECK 7: SYSTEM-RESISTANT RACES — demote to E/W, prevent NAP
     for i, sel in enumerate(sels):
         race_name = sel.get("race_name", "")
@@ -796,11 +1008,23 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
         ranked.sort(key=lambda x: (-x[0], -x[1]))
 
         # Operating Policy floor — drop races whose top scorer is <70
-        qualifying = [r for r in ranked if r[0] >= 70]
-        dropped = len(ranked) - len(qualifying)
-        if dropped:
+        # PLUS Class floor (Option X — added 9 May 2026): drop low-class
+        # races where the framework has no validated edge. Group/Listed/
+        # Grade always pass; Flat C5/C6/C7 blocked; NH C4/C5 blocked.
+        before_class = [r for r in ranked if r[0] >= 70]
+        qualifying = [r for r in before_class if _meets_class_floor(r[3])]
+        dropped_score = len(ranked) - len(before_class)
+        dropped_class = len(before_class) - len(qualifying)
+        if dropped_score:
             logger.info(
-                f"/run {n_races}: {dropped} races dropped — top scorer < 70 (Operating Policy)"
+                f"/run {n_races}: {dropped_score} races dropped — top scorer < 70 (Operating Policy)"
+            )
+        if dropped_class:
+            blocked = [(r[3].race_class, r[3].race_type) for r in before_class
+                       if not _meets_class_floor(r[3])]
+            logger.info(
+                f"/run {n_races}: {dropped_class} races dropped — below class floor "
+                f"(X: Flat C4+, NH C3+); blocked={blocked}"
             )
 
         chosen = qualifying[:n_races]
@@ -833,17 +1057,27 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
         )
     else:
         # Default mode: top runners across all meetings → distinct races
+        # Class floor (Option X — added 9 May 2026) applied here too.
         all_scored.sort(key=lambda x: x[0].total, reverse=True)
         top_runners = all_scored[:60]
 
         top_race_keys = set()
         top_races_data = []
+        blocked_count = 0
         for sr, race, meeting in top_runners:
             key = f"{meeting.course}_{race.time}"
-            if key not in top_race_keys:
-                top_race_keys.add(key)
-                top_races_data.append(races_by_key[key])
+            if key in top_race_keys:
+                continue
+            if not _meets_class_floor(race):
+                blocked_count += 1
+                continue
+            top_race_keys.add(key)
+            top_races_data.append(races_by_key[key])
 
+        if blocked_count:
+            logger.info(
+                f"Class floor blocked {blocked_count} race(s) (X: Flat C4+, NH C3+)"
+            )
         logger.info(
             f"Scored {len(all_scored)} runners across {len(meetings)} meetings. "
             f"Top {len(top_races_data)} races ({len(top_runners)} runners) sent for judgement."
@@ -859,6 +1093,15 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
         # selection by race_name to enforce system-resistant + sub-evens.
         # course / surface / runners-with-odds added 7 May 2026 for AW
         # Class 5/6 targeted rules (weight-rise blocker + no-NAP-on-fav).
+        # Compose going_detailed from available fields. The Race model
+        # doesn't carry going_detailed natively, so we synthesise from
+        # `going` + `weather` which the scraper does populate.
+        going_str = getattr(race, "going", "") or ""
+        weather_str = getattr(race, "weather", "") or ""
+        going_detailed_synth = (
+            f"{going_str} {weather_str}".strip()
+            if (going_str or weather_str) else ""
+        )
         race_meta_lookup[(race.name or "").lower()] = {
             "num_runners": race.num_runners,
             "race_type": race.race_type or "",
@@ -867,6 +1110,8 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
             "race_class": race.race_class or "",
             "course": meeting.course or "",
             "surface": race.surface or "",
+            "going": going_str,
+            "going_detailed": going_detailed_synth,
             "runners": [
                 (sr.runner.name.lower(), _parse_odds_to_decimal(sr.runner.odds or ""))
                 for sr in scored_runners
