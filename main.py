@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 
 import schedule
 
-from config.settings import TIMEZONE, ANALYSIS_TIME, RESULTS_TIME, LOG_LEVEL, ANTHROPIC_API_KEY, FOCUS_COURSES, AUTO_SCHEDULE
+from config.settings import TIMEZONE, ANALYSIS_TIME, RESULTS_TIME, LOG_LEVEL, ANTHROPIC_API_KEY, FOCUS_COURSES, AUTO_SCHEDULE, AUTO_RESULTS
 from src.database import init_db, save_meeting, save_selections, is_bot_paused, _set_state, _get_state
 from src.scraper import Scraper
 from src.analyst import analyse_all_meetings, format_selections_telegram
@@ -361,17 +361,29 @@ async def run_results_check():
 
 
 def schedule_jobs():
-    """Set up daily schedule (only if AUTO_SCHEDULE is enabled)."""
-    if not AUTO_SCHEDULE:
+    """Set up daily schedule.
+
+    Two independent flags:
+    * AUTO_SCHEDULE schedules the analysis pipeline (uses Claude API → £).
+    * AUTO_RESULTS schedules the results fetch (uses Racing API → free).
+      Defaults ON so the results table stays populated for backtesting
+      and live P&L tracking, regardless of whether analysis is automated.
+    """
+    if AUTO_SCHEDULE:
+        schedule.every().day.at(ANALYSIS_TIME).do(
+            lambda: asyncio.get_event_loop().create_task(run_daily_pipeline())
+        )
+        logger.info(f"Scheduled: analysis at {ANALYSIS_TIME}")
+    else:
         logger.info("Auto-schedule DISABLED. Use /run via Telegram for on-demand analysis.")
-        return
-    schedule.every().day.at(ANALYSIS_TIME).do(
-        lambda: asyncio.get_event_loop().create_task(run_daily_pipeline())
-    )
-    schedule.every().day.at(RESULTS_TIME).do(
-        lambda: asyncio.get_event_loop().create_task(run_results_check())
-    )
-    logger.info(f"Scheduled: analysis at {ANALYSIS_TIME}, results at {RESULTS_TIME}")
+
+    if AUTO_RESULTS:
+        schedule.every().day.at(RESULTS_TIME).do(
+            lambda: asyncio.get_event_loop().create_task(run_results_check())
+        )
+        logger.info(f"Scheduled: results at {RESULTS_TIME}")
+    else:
+        logger.info("Auto-results DISABLED.")
 
 
 async def run_scheduler():

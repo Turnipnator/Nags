@@ -25,6 +25,11 @@ RESULTS_TIME = os.getenv("RESULTS_TIME", "18:00")
 # Default OFF — use /run via Telegram for on-demand analysis.
 AUTO_SCHEDULE = os.getenv("AUTO_SCHEDULE", "false").lower() == "true"
 
+# Auto-results: fetch race results daily at RESULTS_TIME, independent
+# of AUTO_SCHEDULE. Free (Racing API only) and keeps the results table
+# populated for backtesting / live P&L. Default ON.
+AUTO_RESULTS = os.getenv("AUTO_RESULTS", "true").lower() == "true"
+
 # Course focus filter (comma-separated, e.g. "aintree" or "aintree,haydock")
 # When set, only these courses are analysed. Empty = all courses.
 FOCUS_COURSES = os.getenv("FOCUS_COURSES", "")
