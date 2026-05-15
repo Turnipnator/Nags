@@ -1580,7 +1580,7 @@ def format_selections_telegram(selections: dict) -> str:
     )
     if nap_idx >= 0:
         if nb_capped:
-            msg += "NAP: 2pts | NB-of-day capped at 14/1: 0.75pt (race SEL stake)\n"
+            msg += "NAP: 2pts | NB-of-day demoted: 0.75pt (race SEL stake)\n"
         else:
             msg += "NAP: 2pts | NB: 1.5pts\n"
         msg += "Selections 3-4: 0.75pt each\n"
