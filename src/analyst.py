@@ -846,10 +846,21 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
         if 0 < nb_field < 8 and not already_demoted:
             old_horse = nb_of_day.get("horse", "")
             nb_of_day["nb_price_capped"] = True
+            # E/W-on-demote refinement (16 May 2026): when the place pool
+            # exists at the bookmaker (5+ runners), force each_way=True on the
+            # demoted selection so the 0.75pt stake captures the place leg.
+            # York 2:20 15 May 2026: So Regal demoted to win-only at 10/3,
+            # finished 2nd 7/2 in 7R Listed — would have place-paid at 1/4.
+            # For 2-4R fields no E/W is offered, so leave each_way alone.
+            ew_note = ""
+            if nb_field >= 5:
+                if not nb_of_day.get("each_way"):
+                    nb_of_day["each_way"] = True
+                    ew_note = " (E/W forced on — place pool active in 5+R field)"
             compliance_fixes.append(
                 f"NB-OF-DAY FIELD FLOOR: {old_horse} in {nb_field}-runner field — "
                 f"demoted to race SEL stake (0.75pt). 1.5pt E/W needs 8+ runners "
-                f"for 3-place E/W terms at 1/5 odds"
+                f"for 3-place E/W terms at 1/5 odds{ew_note}"
             )
             logger.info(
                 f"Compliance: NB-of-day field-size floor demoted {old_horse} "
