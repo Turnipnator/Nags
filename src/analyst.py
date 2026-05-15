@@ -23,7 +23,7 @@ from src.scorer import RunnerScore, Scorer
 
 logger = logging.getLogger(__name__)
 
-NUM_SELECTIONS = 4
+NUM_SELECTIONS = 6
 
 # System-resistant race patterns — half stakes, E/W only, never NAP
 SYSTEM_RESISTANT_PATTERNS = [
@@ -732,6 +732,37 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                 f"Demoted to race SEL stake (0.75pt) — flagged for staking block"
             )
             logger.info(f"Compliance: NB-of-day cap blocked {old_horse} at {nb_odds}")
+
+    # CHECK 12: NB-OF-DAY FIELD-SIZE FLOOR (added 15 May 2026)
+    # The 1.5pt E/W NB-of-day stake only earns its keep when the race pays
+    # 3-place E/W at 1/5 odds — i.e. 8+ runner fields. In 5-7 runner fields
+    # E/W pays only 1-2 at 1/4 odds; in 2-4 runners there is no E/W at all.
+    # The 1.5pt premium stake is wasted on small fields. Triggered by Newton
+    # Abbot 7:00 13 May 2026: Stinginhisstep 8/1 NB-of-day in a 5-runner
+    # handicap → finished 3rd at SP, E/W lost entirely (no place pool credit).
+    # Single biggest losing bet of the night at -£30. Same horse at race SEL
+    # stake (0.75pt E/W = £15) would have halved the damage.
+    if len(sels) > 1:
+        nb_of_day = sels[1]
+        nb_race_name = nb_of_day.get("race_name", "")
+        nb_meta = race_meta_lookup.get((nb_race_name or "").lower(), {})
+        nb_field = nb_meta.get("num_runners", 0) or 0
+        # Only fire if not already demoted by an earlier check (price cap,
+        # C5/C6 score-market gate) — the existing flag is idempotent so this
+        # is mainly a logging clarity guard.
+        already_demoted = nb_of_day.get("nb_price_capped", False)
+        if 0 < nb_field < 8 and not already_demoted:
+            old_horse = nb_of_day.get("horse", "")
+            nb_of_day["nb_price_capped"] = True
+            compliance_fixes.append(
+                f"NB-OF-DAY FIELD FLOOR: {old_horse} in {nb_field}-runner field — "
+                f"demoted to race SEL stake (0.75pt). 1.5pt E/W needs 8+ runners "
+                f"for 3-place E/W terms at 1/5 odds"
+            )
+            logger.info(
+                f"Compliance: NB-of-day field-size floor demoted {old_horse} "
+                f"(field {nb_field}) to race SEL stake"
+            )
 
     # CHECK 8: AW CLASS 5/6 WEIGHT-RISE BLOCKER (Rule A — added 7 May 2026)
     # 3+ wins in last 5 starts AND Spotlight indicates a +7lb rise → max NB
