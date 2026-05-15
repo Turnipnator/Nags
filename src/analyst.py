@@ -598,8 +598,18 @@ def _resolve_race_meta(sel: dict, race_meta_lookup: dict) -> dict:
         return {}
     race_name = (sel.get("race_name") or "").lower().strip()
     course = (sel.get("course") or "").lower().strip()
+    race_time = (sel.get("race_time") or "").strip()
 
-    # 1. Exact match
+    # 0. Course + time match — most reliable. Two races can't run at the
+    # same time on the same card, so this uniquely identifies a race.
+    if course and race_time:
+        for meta in race_meta_lookup.values():
+            mc = (meta.get("course") or "").lower()
+            mt = (meta.get("race_time") or "").strip()
+            if mc == course and mt == race_time:
+                return meta
+
+    # 1. Exact name match
     if race_name and race_name in race_meta_lookup:
         return race_meta_lookup[race_name]
 
@@ -623,7 +633,30 @@ def _resolve_race_meta(sel: dict, race_meta_lookup: dict) -> dict:
         if candidates:
             return candidates[0]
 
-    # 3. Course-only fallback — useful when exactly one race is keyed
+    # 3. Prefix-before-parenthesis match — LLM and API often share the
+    # sponsor + base race name but diverge on parenthetical qualifiers
+    # ("(Listed Race)" vs "(Registered As The Michael Seely Memorial...)").
+    def _prefix(s: str) -> str:
+        idx = s.find("(")
+        return (s[:idx] if idx > 0 else s).strip()
+    sel_prefix = _prefix(race_name)
+    if sel_prefix:
+        candidates = []
+        for key, meta in race_meta_lookup.items():
+            kp = _prefix(key or "")
+            if kp and (kp == sel_prefix or sel_prefix in kp or kp in sel_prefix):
+                candidates.append(meta)
+        if len(candidates) == 1:
+            return candidates[0]
+        if len(candidates) > 1 and course:
+            cf = [m for m in candidates
+                  if (m.get("course") or "").lower() == course]
+            if cf:
+                return cf[0]
+        if candidates:
+            return candidates[0]
+
+    # 4. Course-only fallback — useful when exactly one race is keyed
     if course:
         course_matches = [
             m for m in race_meta_lookup.values()
@@ -1197,6 +1230,7 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
             "distance": race.distance or "",
             "race_class": race.race_class or "",
             "course": meeting.course or "",
+            "race_time": race.time or "",
             "surface": race.surface or "",
             "going": going_str,
             "going_detailed": going_detailed_synth,
