@@ -575,6 +575,66 @@ def _is_system_resistant_race(race_name: str, num_runners: int,
     return False
 
 
+def _resolve_race_meta(sel: dict, race_meta_lookup: dict) -> dict:
+    """Resolve race meta for a selection, tolerating LLM-shortened race names.
+
+    The LLM returns abbreviated race_name (e.g. "Sky Bet Fillies' Stakes
+    (Listed)") that doesn't match the full API race name used as the lookup
+    key ("Sky Bet Fillies' Stakes (Registered As The Michael Seely Memorial
+    Fillies' Stakes) (Listed Race)"). Exact-match `.get(name.lower())` then
+    silently no-ops, which causes every race_meta-dependent compliance
+    check (CHECK 7-12) to silently fail.
+
+    Strategy:
+      1. Exact match (current behaviour)
+      2. Substring match — selection name is in (or contains) a key.
+         Tie-break by `course` if multiple candidates.
+      3. Course-only fallback if exactly one race is keyed on that course.
+
+    Added 15 May 2026 after CHECK 12 (NB-of-day field-size floor) no-opped
+    on So Regal at York 2:20 (7-runner Listed) because of name mismatch.
+    """
+    if not sel or not race_meta_lookup:
+        return {}
+    race_name = (sel.get("race_name") or "").lower().strip()
+    course = (sel.get("course") or "").lower().strip()
+
+    # 1. Exact match
+    if race_name and race_name in race_meta_lookup:
+        return race_meta_lookup[race_name]
+
+    # 2. Substring match — selection name overlaps a key
+    if race_name:
+        candidates = []
+        for key, meta in race_meta_lookup.items():
+            if not key:
+                continue
+            if race_name in key or key in race_name:
+                candidates.append(meta)
+        if len(candidates) == 1:
+            return candidates[0]
+        if len(candidates) > 1 and course:
+            course_filtered = [
+                m for m in candidates
+                if (m.get("course") or "").lower() == course
+            ]
+            if course_filtered:
+                return course_filtered[0]
+        if candidates:
+            return candidates[0]
+
+    # 3. Course-only fallback — useful when exactly one race is keyed
+    if course:
+        course_matches = [
+            m for m in race_meta_lookup.values()
+            if (m.get("course") or "").lower() == course
+        ]
+        if len(course_matches) == 1:
+            return course_matches[0]
+
+    return {}
+
+
 def _enforce_compliance(selections: dict, scored_lookup: dict,
                         race_meta_lookup: dict = None) -> dict:
     """
@@ -744,8 +804,7 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
     # stake (0.75pt E/W = £15) would have halved the damage.
     if len(sels) > 1:
         nb_of_day = sels[1]
-        nb_race_name = nb_of_day.get("race_name", "")
-        nb_meta = race_meta_lookup.get((nb_race_name or "").lower(), {})
+        nb_meta = _resolve_race_meta(nb_of_day, race_meta_lookup)
         nb_field = nb_meta.get("num_runners", 0) or 0
         # Only fire if not already demoted by an earlier check (price cap,
         # C5/C6 score-market gate) — the existing flag is idempotent so this
@@ -777,7 +836,7 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
         if not sr:
             continue
         race_name = sel.get("race_name", "")
-        meta = race_meta_lookup.get((race_name or "").lower(), {})
+        meta = _resolve_race_meta(sel, race_meta_lookup)
         if not _is_aw_c5_or_c6_handicap(race_name, meta):
             continue
         runner = sr.runner
@@ -818,7 +877,7 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
         nap_odds = nap.get("odds_guide", "")
         nap_dec = _parse_odds_to_decimal(nap_odds)
         nap_race_name = nap.get("race_name", "")
-        nap_meta = race_meta_lookup.get((nap_race_name or "").lower(), {})
+        nap_meta = _resolve_race_meta(nap, race_meta_lookup)
         if (
             _is_aw_c5_or_c6_handicap(nap_race_name, nap_meta)
             and nap_dec > 0
@@ -857,8 +916,7 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
         score = sel.get("adjusted_score", 0)
         odds = sel.get("odds_guide", "")
         dec = _parse_odds_to_decimal(odds)
-        race_name = sel.get("race_name", "")
-        meta = race_meta_lookup.get((race_name or "").lower(), {})
+        meta = _resolve_race_meta(sel, race_meta_lookup)
         if not _is_c5_or_c6_any(meta):
             continue
         if score < 80:
@@ -902,8 +960,7 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
     # forecast "Good", races ran on Soft, all bot picks failed.
     drift_courses_done = set()
     for i, sel in enumerate(sels):
-        race_name = sel.get("race_name", "")
-        meta = race_meta_lookup.get((race_name or "").lower(), {})
+        meta = _resolve_race_meta(sel, race_meta_lookup)
         course = (meta.get("course") or "").strip()
         going = meta.get("going", "")
         going_detailed = meta.get("going_detailed", "")
@@ -952,7 +1009,7 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
     # CHECK 7: SYSTEM-RESISTANT RACES — demote to E/W, prevent NAP
     for i, sel in enumerate(sels):
         race_name = sel.get("race_name", "")
-        meta = race_meta_lookup.get((race_name or "").lower(), {})
+        meta = _resolve_race_meta(sel, race_meta_lookup)
         num_runners = meta.get("num_runners", 12)
         if _is_system_resistant_race(
             race_name,
