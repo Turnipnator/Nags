@@ -12,6 +12,7 @@ Judgement: Claude API (with programmatic fallback).
 import asyncio
 import logging
 import os
+import re
 import sys
 from datetime import date, datetime
 from logging.handlers import RotatingFileHandler
@@ -252,6 +253,20 @@ def _save_cherry_picks(today: date, selections: dict):
     logger.info(f"Saved {len(sels)} selections + NBs to database")
 
 
+_COUNTRY_SUFFIX = re.compile(r"\s*\([A-Z]{2,4}\)\s*$")
+
+
+def _norm_horse(name: str) -> str:
+    """Normalise a horse name for matching.
+
+    The /results endpoint returns names WITH a country suffix
+    ('Hale End (IRE)', 'Garden Oasis (GB)') while racecards/selections store
+    the bare name ('Hale End'). Without stripping it, exact matching never
+    succeeds and every selection is logged 'no result yet' forever.
+    """
+    return _COUNTRY_SUFFIX.sub("", name or "").strip().lower()
+
+
 async def run_results_check():
     """Auto-check results using the Racing API."""
     if is_bot_paused():
@@ -311,7 +326,7 @@ async def run_results_check():
             found = False
             for result in all_results:
                 for runner in result.get("runners", []):
-                    if runner.get("horse", "").lower() == horse_name.lower():
+                    if _norm_horse(runner.get("horse", "")) == _norm_horse(horse_name):
                         pos = runner.get("position", "")
                         sp = runner.get("sp", "")
                         sp_dec = float(runner.get("sp_dec", 0) or 0)
