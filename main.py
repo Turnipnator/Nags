@@ -276,10 +276,16 @@ async def run_results_check():
         if not _conn:
             return
 
+        # Scope to TODAY's selections only. Results are only ever fetched for
+        # `today`, so any past pick left unresolved (silent send failure, name
+        # mismatch, evening race) can never be matched — without this filter it
+        # accumulates forever and the 18:00 check re-lists months of horses.
         rows = _conn.execute(
             """SELECT id, horse, race_time, selection_type, odds_guide, stake_pts, each_way
                FROM selections
-               WHERE race_time != '' AND id NOT IN (SELECT selection_id FROM results)
+               WHERE race_time != ''
+                 AND date(created_at) = date('now')
+                 AND id NOT IN (SELECT selection_id FROM results)
                ORDER BY race_time"""
         ).fetchall()
 
@@ -291,6 +297,7 @@ async def run_results_check():
         total_pnl = 0.0
         winners = 0
         placed = 0
+        pending = 0
 
         for sel_row in rows:
             sel_id = sel_row["id"]
@@ -345,10 +352,12 @@ async def run_results_check():
                     break
 
             if not found:
-                msg += f"⏳ {horse_name} - no result yet\n"
+                pending += 1
 
         msg += f"\n*Day P&L: {total_pnl:+.1f}pts*"
         msg += f"\n✅ {winners} winners | 🔸 {placed} placed"
+        if pending:
+            msg += f"\n⏳ {pending} awaiting results (races not yet run / no result published)"
         await send_message(msg)
 
     except Exception as e:
