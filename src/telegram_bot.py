@@ -11,6 +11,7 @@ import logging
 from datetime import date
 
 from telegram import Update
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -259,19 +260,46 @@ def create_app() -> Application:
     return app
 
 
-async def send_message(text: str, parse_mode: str = "Markdown"):
-    """Send a message to the authorised chat. Called by scheduler."""
+async def send_message(text: str, parse_mode: str = "Markdown") -> bool:
+    """Send a message to the authorised chat. Called by scheduler.
+
+    Resilient by design — a malformed message must NEVER be silently dropped:
+    - Enforces Telegram's 4096-char hard limit by chunking (selections and the
+      18:00 results message routinely exceed it).
+    - On a Markdown parse error (BadRequest, e.g. an unbalanced entity from
+      unsanitised API/LLM text), retries the chunk as PLAIN TEXT. An ugly
+      message beats silence — that silence hid today's picks AND a week of
+      missing results checks (14-19 May).
+
+    Returns True only if every chunk was delivered.
+    """
     if _app is None:
         logger.error("Telegram app not initialised")
-        return
-    try:
-        await _app.bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=text,
-            parse_mode=parse_mode,
-        )
-    except Exception as e:
-        logger.error(f"Failed to send Telegram message: {e}")
+        return False
+
+    ok = True
+    for chunk in _split_message(text, 4000):
+        try:
+            await _app.bot.send_message(
+                chat_id=TELEGRAM_CHAT_ID,
+                text=chunk,
+                parse_mode=parse_mode,
+            )
+        except BadRequest as e:
+            logger.warning(f"Markdown send failed ({e}); retrying as plain text")
+            try:
+                await _app.bot.send_message(
+                    chat_id=TELEGRAM_CHAT_ID,
+                    text=chunk,
+                    parse_mode=None,
+                )
+            except Exception as e2:
+                logger.error(f"Plain-text retry also failed: {e2}")
+                ok = False
+        except Exception as e:
+            logger.error(f"Failed to send Telegram message: {e}")
+            ok = False
+    return ok
 
 
 async def send_selections(selections: dict):

@@ -1518,11 +1518,11 @@ def format_selections_telegram(selections: dict) -> str:
         msg += "═══════════════════════════\n"
         msg += "🏆 *NAP OF THE DAY*\n"
         msg += "═══════════════════════════\n"
-        msg += f"*{nap['horse']}*\n"
-        msg += f"📍 {nap['race_time']} {nap['course']}\n"
-        msg += f"   {nap.get('race_name', '')}\n"
+        msg += f"*{_sanitise_markdown(nap['horse'])}*\n"
+        msg += f"📍 {nap['race_time']} {_sanitise_markdown(nap['course'])}\n"
+        msg += f"   {_sanitise_markdown(nap.get('race_name', ''))}\n"
         ew = " (E/W)" if nap.get("each_way") else ""
-        msg += f"💰 {nap['odds_guide']}{ew}\n"
+        msg += f"💰 {_sanitise_markdown(nap['odds_guide'])}{ew}\n"
         msg += f"📊 Score: {nap.get('adjusted_score', '?')}/100 | Confidence: {nap.get('confidence', '?')}\n\n"
         for r in nap.get("reasoning", []):
             msg += f"• {_sanitise_markdown(r)}\n"
@@ -1540,10 +1540,10 @@ def format_selections_telegram(selections: dict) -> str:
         msg += "\n═══════════════════════════\n"
         msg += "⭐ *NEXT BEST*\n"
         msg += "═══════════════════════════\n"
-        msg += f"*{nb['horse']}*\n"
-        msg += f"📍 {nb['race_time']} {nb['course']}\n"
+        msg += f"*{_sanitise_markdown(nb['horse'])}*\n"
+        msg += f"📍 {nb['race_time']} {_sanitise_markdown(nb['course'])}\n"
         ew = " (E/W)" if nb.get("each_way") else ""
-        msg += f"💰 {nb['odds_guide']}{ew}\n"
+        msg += f"💰 {_sanitise_markdown(nb['odds_guide'])}{ew}\n"
         msg += f"📊 Score: {nb.get('adjusted_score', '?')}/100\n\n"
         for r in nb.get("reasoning", []):
             msg += f"• {_sanitise_markdown(r)}\n"
@@ -1557,8 +1557,8 @@ def format_selections_telegram(selections: dict) -> str:
     for sel in sels:
         rank_emoji = "🏆" if sel["rank"] == nap_idx + 1 and nap_idx >= 0 else "⭐" if sel["rank"] == 2 else "📌"
         ew = " (E/W)" if sel.get("each_way") else ""
-        msg += f"\n{rank_emoji} *{sel['rank']}. {sel['horse']}* {sel['odds_guide']}{ew}\n"
-        msg += f"   {sel['race_time']} {sel['course']} ({sel.get('adjusted_score', '?')}pts)\n"
+        msg += f"\n{rank_emoji} *{sel['rank']}. {_sanitise_markdown(sel['horse'])}* {_sanitise_markdown(sel['odds_guide'])}{ew}\n"
+        msg += f"   {sel['race_time']} {_sanitise_markdown(sel['course'])} ({sel.get('adjusted_score', '?')}pts)\n"
 
         reasons = sel.get("reasoning", [])
         if isinstance(reasons, list) and reasons:
@@ -1569,17 +1569,17 @@ def format_selections_telegram(selections: dict) -> str:
         rnb = sel.get("next_best", {})
         if rnb and rnb.get("horse"):
             nb_ew = " (E/W)" if rnb.get("each_way") else ""
-            msg += f"   NB: {rnb['horse']} {rnb.get('odds_guide', '?')}{nb_ew}\n"
+            msg += f"   NB: {_sanitise_markdown(rnb['horse'])} {_sanitise_markdown(rnb.get('odds_guide', '?'))}{nb_ew}\n"
 
     # Double
     if double and nap_idx >= 0:
         msg += "\n═══════════════════════════\n"
         msg += "🔗 *DOUBLE*\n"
         msg += "═══════════════════════════\n"
-        msg += f"{double.get('leg1', '?')}\n"
-        msg += f"{double.get('leg2', '?')}\n"
+        msg += f"{_sanitise_markdown(double.get('leg1', '?'))}\n"
+        msg += f"{_sanitise_markdown(double.get('leg2', '?'))}\n"
         if double.get("combined_odds_approx"):
-            msg += f"Approx: {double['combined_odds_approx']}\n"
+            msg += f"Approx: {_sanitise_markdown(str(double['combined_odds_approx']))}\n"
 
     # Staking
     msg += "\n═══════════════════════════\n"
@@ -1607,7 +1607,7 @@ def format_selections_telegram(selections: dict) -> str:
     if gate_fixes:
         msg += "\n\n🔒 *Compliance Gate*\n"
         for fix in gate_fixes:
-            msg += f"• {fix.replace('[GATE FIX] ', '')}\n"
+            msg += f"• {_sanitise_markdown(fix.replace('[GATE FIX] ', ''))}\n"
 
     if notes:
         msg += f"\n\n📝 _{_sanitise_markdown(notes)}_"
