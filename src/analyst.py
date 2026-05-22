@@ -1394,6 +1394,13 @@ def _run_claude_judgement(top_races_data: list, meetings: list[Meeting],
     response = client.messages.create(
         model=JUDGEMENT_MODEL,
         max_tokens=6000,
+        # Pinned to 0 (22 May 2026) for determinism: identical input → identical
+        # selections, so any run-to-run difference is a REAL change (odds drift,
+        # Timeform update, non-runner) rather than sampler noise. Matters for a
+        # real-money rubric-based system and makes prompt/CLAUDE.md tuning
+        # measurable. Triggered by 22 May Goodwood: two runs of the same card
+        # diverged at the margin (St Mawes in/out) purely from default temp=1.0.
+        temperature=0,
         system=ANALYST_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}],
     )
