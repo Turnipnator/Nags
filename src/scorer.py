@@ -107,6 +107,65 @@ def _is_c5_or_c6(race) -> bool:
     return "class 5" in rc or "class 6" in rc
 
 
+# Feature flag for Rule 18b (added 27 May 2026). Set False to disable.
+# Behaviour returns to current state in <1 minute when toggled off.
+RULE_18B_ENABLED = True
+
+
+def _race_class_tier(race) -> Optional[int]:
+    """Return the numeric class tier of `race` using CLASS_LEVELS tables.
+    Higher number = higher class quality. Returns None when the race has
+    no resolvable class (e.g., Irish midweek unclassed cards)."""
+    pattern = (getattr(race, "pattern", "") or "").lower()
+    rt = (race.race_type or "").lower()
+    is_nh = any(t in rt for t in ("chase", "hurdle", "nh flat"))
+    class_map = CLASS_LEVELS_NH if is_nh else CLASS_LEVELS_FLAT
+    if pattern:
+        for label, lvl in class_map.items():
+            if label in pattern:
+                return lvl
+    rc = (race.race_class or "").lower()
+    if rc:
+        for label, lvl in class_map.items():
+            if label in rc:
+                return lvl
+    return None
+
+
+def _rule18b_scope(race) -> bool:
+    """Rule 18b scope guard. Mirrors base Rule 18 exactly.
+
+    Fires only in Flat C4+ / NH C3+ / Group / Listed / Grade.
+    NEVER fires in Flat C5/C6/C7 — preserves C5/6 calibration patches
+    (8 May 2026) that exist BECAUSE the bot over-scores compressed-pool
+    form. NEVER fires in NH C4/C5 — preserves NH class-floor logic.
+
+    Pattern check first (G/L/Grade), then class string."""
+    pattern = (getattr(race, "pattern", "") or "").lower()
+    if any(p in pattern for p in ("group", "listed", "grade")):
+        return True
+    rc = (race.race_class or "").lower()
+    rt = (race.race_type or "").lower()
+    is_nh = any(t in rt for t in ("chase", "hurdle", "nh flat"))
+    if is_nh:
+        return any(x in rc for x in ("class 1", "class 2", "class 3"))
+    return any(x in rc for x in ("class 1", "class 2", "class 3", "class 4"))
+
+
+def _form_chars(form_str: str) -> str:
+    """Strip season-break separators from a form string. Returns the
+    chronological digit/letter sequence (LEFT = OLDEST, RIGHT = MOST
+    RECENT) per Racing API convention.
+
+    Note: a pre-existing bug in `_score_form` weights form[0] heaviest
+    treating it as most recent. That weighting is wrong but out of scope
+    for Rule 18b — see CLAUDE.md "Bug 3 — Form Weighting" footnote.
+    Rule 18b's index mapping uses the CORRECT convention so the right
+    character is excused even if the score-weight applied to it is the
+    bot's existing (wrong) weight for that position."""
+    return (form_str or "").replace("-", "").replace("/", "")
+
+
 class Scorer:
     """Programmatic scorer for the quantifiable 70% of the analysis."""
 
@@ -133,7 +192,7 @@ class Scorer:
             score.final_score = 0.0
             return score
 
-        score.form_score = self._score_form(runner)
+        score.form_score = self._score_form(runner, race)
         score.course_score = self._score_course(runner, race)
         score.going_score = self._score_going(runner, race)
         score.distance_score = self._score_distance(runner, race)
@@ -189,24 +248,42 @@ class Scorer:
 
         return False
 
-    def _score_form(self, runner: Runner) -> float:
-        """Score recent form (max 22 points)."""
+    def _score_form(self, runner: Runner, race: Race = None) -> float:
+        """Score recent form (max 22 points).
+
+        Optional `race` parameter (added 27 May 2026) enables Rule 18b —
+        Excused Higher-Class Last Runs. When race is provided AND
+        RULE_18B_ENABLED, the helper `_excused_form_indices` returns a
+        set of form-string positions to SKIP. Skipped positions contribute
+        nothing to either points or total_weight (treated as missing data,
+        not a positive)."""
         if not runner.form:
             return 5.0  # Unknown/no form = neutral
 
-        form = runner.form.replace("-", "").replace("/", "")
+        form = _form_chars(runner.form)
         if not form:
             return 5.0
+
+        # Rule 18b: identify positions to excuse from form scoring.
+        # Returns empty set when out of scope, no candidates, or race is None.
+        excused = set()
+        if race is not None and RULE_18B_ENABLED:
+            excused = self._excused_form_indices(runner, race, form)
 
         points = 0.0
         total_weight = 0.0
 
-        # Weight recent runs more heavily (most recent first)
+        # NOTE: weights[0] is applied to form[0]. Per Racing API convention,
+        # form[0] is the OLDEST visible run (right-end = most recent). This
+        # weighting is a pre-existing bug — see CLAUDE.md "Bug 3" note.
+        # Rule 18b operates on the correct convention internally.
         weights = [3.0, 2.5, 2.0, 1.5, 1.0, 0.5]
 
         for i, char in enumerate(form[:6]):
             if i >= len(weights):
                 break
+            if i in excused:
+                continue  # Rule 18b: skip — treat as missing data
             w = weights[i]
             total_weight += w
 
@@ -239,6 +316,92 @@ class Scorer:
             normalised = min(1.0, normalised + 0.1)
 
         return round(normalised * 22.0, 1)
+
+    def _excused_form_indices(self, runner: Runner, race: Race,
+                              form: str) -> set:
+        """Rule 18b core (added 27 May 2026). Return a set of form-string
+        indices to EXCLUDE from form penalty calculation.
+
+        Triggers when:
+          - Today's race is in Rule 18b scope (Flat C4+/NH C3+/G-L-Grade)
+          - The runner has `recent_results` populated (API enrichment ran)
+          - At least one historical run was at HIGHER class than today
+            AND the runner finished position 4+ in that run
+          - The runner does NOT have 2+ same-class poor finishes (in which
+            case the form at this level is honest and should not be excused)
+
+        Cap: at most 1 excused position (best candidate by tier diff, then
+        worst position). Mirrors base Rule 18's single-run-excuse design.
+
+        Form-string mapping: Racing API form is chronological LEFT-TO-RIGHT
+        (form[0] = oldest visible, form[len-1] = most recent). API
+        recent_results is reverse-chronological (idx 0 = most recent). So
+        form_idx = len(form) - 1 - past_api_idx (where past_api_idx counts
+        only API entries dated STRICTLY BEFORE today — same-day races would
+        shift the mapping by one because the form string doesn't include
+        them yet).
+
+        Returns empty set on any failure (out of scope, no data, no
+        candidates) — safe-by-default. Never raises."""
+        if not _rule18b_scope(race):
+            return set()
+        hist = getattr(runner, "recent_results", None) or []
+        if not hist:
+            return set()
+        today_tier = _race_class_tier(race)
+        if today_tier is None:
+            return set()
+
+        # Filter out same-day-or-later API results. They're in the API
+        # because some races on the card have already run, but the form
+        # string was generated before today and doesn't reflect them.
+        # Without this filter the index mapping is off-by-one.
+        from datetime import date as _date_cls
+        today_iso = _date_cls.today().isoformat()
+        past_hist = [h for h in hist if (h.get("date") or "") < today_iso]
+        if not past_hist:
+            return set()
+
+        form_len = len(form)
+        candidates = []  # (form_idx, position, hist_tier)
+        same_class_poor_count = 0
+
+        for past_idx, h in enumerate(past_hist[:3]):
+            pos_raw = h.get("position")
+            if pos_raw is None:
+                continue
+            try:
+                pos = int(pos_raw)
+            except (ValueError, TypeError):
+                continue
+            if pos < 4:
+                continue
+            hist_tier = h.get("class_level")
+            if hist_tier is None:
+                continue
+            if hist_tier == today_tier:
+                same_class_poor_count += 1
+            elif hist_tier > today_tier:
+                # Higher class than today — Rule 18b candidate
+                form_idx = form_len - 1 - past_idx
+                if 0 <= form_idx < form_len:
+                    candidates.append((form_idx, pos, hist_tier))
+
+        # Guard: form at this level is honest if 2+ same-class poor finishes
+        if same_class_poor_count >= 2:
+            return set()
+        if not candidates:
+            return set()
+
+        # Pick best candidate: largest tier diff, then worst position
+        candidates.sort(key=lambda x: (-(x[2] - today_tier), -x[1]))
+        chosen = candidates[0]
+        # Log the firing for paper-trade tracking
+        logger.info(
+            f"Rule 18b: {runner.name} — excused form[{chosen[0]}] "
+            f"(API pos {chosen[1]} at tier {chosen[2]} vs today {today_tier})"
+        )
+        return {chosen[0]}
 
     def _check_improving(self, form: str) -> bool:
         """Check if last 3 runs show improving trend."""

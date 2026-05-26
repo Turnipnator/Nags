@@ -69,6 +69,34 @@ def _spotlight_suggests_class_drop(spotlight: Optional[str]) -> bool:
     return bool(_CLASS_DROP_SPOTLIGHT_PATTERNS.search(spotlight))
 
 
+def _runner_rule18b_candidate(runner, race) -> bool:
+    """Rule 18b prefilter (added 27 May 2026). Return True if this runner
+    should have history fetched to allow Rule 18b firing during scoring.
+
+    Triggers when ALL:
+      - Today's race is in Rule 18b scope (Flat C4+/NH C3+/G-L-Grade)
+      - Runner has form with at least one position 4+ in the last 3 chars
+        (right side, since form is chronological left-to-right)
+
+    Designed to be CHEAP — pure string/regex inspection, no API call.
+    Widens the existing class-drop prefilter so Rule 18b can fire on
+    horses whose Spotlight doesn't explicitly mention higher-grade form
+    (e.g., the Lincoln runner whose Spotlight is just "not disgraced in
+    competitive handicaps")."""
+    from src.scorer import _rule18b_scope
+    try:
+        if not _rule18b_scope(race):
+            return False
+    except Exception:
+        return False
+    form = (getattr(runner, "form", "") or "").replace("-", "").replace("/", "")
+    if not form:
+        return False
+    # Examine the last 3 chars (most recent runs per chronological convention)
+    recent = form[-3:]
+    return any(c in "456789" or c == "0" for c in recent)
+
+
 @dataclass
 class Runner:
     name: str
@@ -449,13 +477,16 @@ class Scraper:
                 for runner in race.runners:
                     if not runner.horse_id or runner.recent_results is not None:
                         continue
-                    # Pre-filter: only horses with Spotlight indicating recent
-                    # higher-grade form warrant the lookup. Added 4 May 2026
-                    # to cut 429-storm enrichment volume by ~85%. Horses
-                    # without the signal get an empty recent_results list
-                    # (same shape as a failed lookup) — the scorer's
-                    # class-drop kicker won't fire either way.
-                    if _spotlight_suggests_class_drop(runner.comment):
+                    # Pre-filter: horse gets API lookup if EITHER
+                    #   (a) Spotlight mentions higher-grade form (class-drop
+                    #       kicker — original prefilter, 4 May 2026), OR
+                    #   (b) Runner is a Rule 18b candidate — in-scope race +
+                    #       at least one poor recent finish (27 May 2026)
+                    # Horses without either signal get an empty recent_results
+                    # list (same shape as failed lookup) — neither the
+                    # class-drop kicker nor Rule 18b will fire.
+                    if (_spotlight_suggests_class_drop(runner.comment) or
+                            _runner_rule18b_candidate(runner, race)):
                         candidates.append(runner)
                     else:
                         runner.recent_results = []
