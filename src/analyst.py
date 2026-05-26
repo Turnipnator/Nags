@@ -1177,9 +1177,31 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
         dropped_score = len(ranked) - len(before_class)
         dropped_class = len(before_class) - len(qualifying)
         if dropped_score:
+            # Detailed log for each dropped-by-betable race — needed for
+            # paper-trade evaluation of whether the fix is throwing away
+            # legitimate value picks (e.g., Leicester 2:10 26 May Libertango
+            # 4/1 WON despite 44pt score, after Victory Gold 8/13F lost).
             logger.info(
                 f"/run {n_races}: {dropped_score} races dropped — top BETABLE scorer < 70 (Operating Policy)"
             )
+            for top_score, gap, race_scored, race, meeting in ranked:
+                if _top_betable_score(race_scored) >= 70:
+                    continue
+                # Find the top sub-evens horse (the one that carried the
+                # race past the old gate) and the top betable horse.
+                top_sub = next((sr for sr in race_scored
+                                if _parse_odds_to_decimal(sr.runner.odds or "") <= 1.0
+                                and _parse_odds_to_decimal(sr.runner.odds or "") > 0), None)
+                top_bet = next((sr for sr in race_scored
+                                if _parse_odds_to_decimal(sr.runner.odds or "") > 1.0), None)
+                sub_desc = (f"{top_sub.runner.name} {top_sub.runner.odds}@{top_sub.total:.0f}"
+                            if top_sub else "no sub-evens")
+                bet_desc = (f"{top_bet.runner.name} {top_bet.runner.odds}@{top_bet.total:.0f}"
+                            if top_bet else "no betable")
+                logger.info(
+                    f"  → DROPPED-betable: {meeting.course} {race.time} | "
+                    f"sub-evens [{sub_desc}] vs betable [{bet_desc}]"
+                )
         if dropped_class:
             blocked = [(r[3].race_class, r[3].race_type) for r in before_class
                        if not _meets_class_floor(r[3])]
@@ -1228,6 +1250,7 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
         top_races_data = []
         blocked_count = 0
         unbetable_count = 0
+        unbetable_details = []
         for sr, race, meeting in top_runners:
             key = f"{meeting.course}_{race.time}"
             if key in top_race_keys:
@@ -1238,6 +1261,18 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
             race_scored = races_by_key[key][0]
             if _top_betable_score(race_scored) < 70:
                 unbetable_count += 1
+                # Capture the dropped race details for paper-trade tracking
+                top_sub = next((s for s in race_scored
+                                if 0 < _parse_odds_to_decimal(s.runner.odds or "") <= 1.0), None)
+                top_bet = next((s for s in race_scored
+                                if _parse_odds_to_decimal(s.runner.odds or "") > 1.0), None)
+                sub_desc = (f"{top_sub.runner.name} {top_sub.runner.odds}@{top_sub.total:.0f}"
+                            if top_sub else "no sub-evens")
+                bet_desc = (f"{top_bet.runner.name} {top_bet.runner.odds}@{top_bet.total:.0f}"
+                            if top_bet else "no betable")
+                unbetable_details.append(
+                    f"{meeting.course} {race.time} | sub-evens [{sub_desc}] vs betable [{bet_desc}]"
+                )
                 continue
             top_race_keys.add(key)
             top_races_data.append(races_by_key[key])
@@ -1251,6 +1286,8 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
                 f"Betable-threshold gate skipped {unbetable_count} race(s) — "
                 f"only 70+ scorer was sub-evens-blocked"
             )
+            for line in unbetable_details:
+                logger.info(f"  → DROPPED-betable: {line}")
         logger.info(
             f"Scored {len(all_scored)} runners across {len(meetings)} meetings. "
             f"Top {len(top_races_data)} races ({len(top_runners)} runners) sent for judgement."
