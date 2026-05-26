@@ -204,6 +204,29 @@ def _is_sub_evens(odds_str: str) -> bool:
     return 0 < dec <= 1.0
 
 
+def _top_betable_score(race_scored: list) -> float:
+    """Return the highest total among runners priced ABOVE evens (decimal > 1.0).
+
+    Added 26 May 2026 after Leicester 2:10 misfire: Victory Gold 8/13F scored
+    73.0 (carried by SPEED DOMINANCE +5 and Hot stable +3), which carried
+    the race past the 70+ race-selection threshold. But Victory Gold is
+    sub-evens-blocked at SEL stage, so the LLM was forced to pick from
+    Miami To Ibiza (45) / Libertango (44) — below the Operating Policy
+    skip-floor of 55. Race-selection must gate on a BETABLE runner's score,
+    not the absolute top. A race where the only 70+ scorer is sub-evens-
+    blocked is functionally un-betable for this framework.
+
+    Returns 0.0 if no runner is priced above evens (race has no betable
+    horse at all)."""
+    best = 0.0
+    for sr in race_scored:
+        dec = _parse_odds_to_decimal(getattr(sr.runner, "odds", "") or "")
+        if dec > 1.0:  # above evens — would survive sub-evens block
+            if sr.total > best:
+                best = sr.total
+    return best
+
+
 # Price caps (added 5 May 2026 after Fairlawn Flyer 22/1 NAP at Ffos Las
 # scored 81 despite 149-day absence — the framework had no way to
 # express "the market thinks this is a 4% shot, so 'NAP' is wrong even
@@ -1141,17 +1164,21 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
             ranked.append((top1, gap, race_scored, race, meeting))
         ranked.sort(key=lambda x: (-x[0], -x[1]))
 
-        # Operating Policy floor — drop races whose top scorer is <70
+        # Operating Policy floor — drop races whose top BETABLE scorer is <70
+        # (betable = priced above evens; sub-evens favs would be blocked at
+        # SEL stage anyway, so a race where the only 70+ scorer is sub-evens
+        # is functionally un-betable). Tightened 26 May 2026 after Leicester
+        # 2:10 misfire — Victory Gold 8/13F at 73 carried Libertango (44) in.
         # PLUS Class floor (Option X — added 9 May 2026): drop low-class
         # races where the framework has no validated edge. Group/Listed/
         # Grade always pass; Flat C5/C6/C7 blocked; NH C4/C5 blocked.
-        before_class = [r for r in ranked if r[0] >= 70]
+        before_class = [r for r in ranked if _top_betable_score(r[2]) >= 70]
         qualifying = [r for r in before_class if _meets_class_floor(r[3])]
         dropped_score = len(ranked) - len(before_class)
         dropped_class = len(before_class) - len(qualifying)
         if dropped_score:
             logger.info(
-                f"/run {n_races}: {dropped_score} races dropped — top scorer < 70 (Operating Policy)"
+                f"/run {n_races}: {dropped_score} races dropped — top BETABLE scorer < 70 (Operating Policy)"
             )
         if dropped_class:
             blocked = [(r[3].race_class, r[3].race_type) for r in before_class
@@ -1192,12 +1219,15 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
     else:
         # Default mode: top runners across all meetings → distinct races
         # Class floor (Option X — added 9 May 2026) applied here too.
+        # Betable-threshold gate (added 26 May 2026): skip races where the
+        # only 70+ scorer is sub-evens-blocked. See _top_betable_score docstring.
         all_scored.sort(key=lambda x: x[0].total, reverse=True)
         top_runners = all_scored[:60]
 
         top_race_keys = set()
         top_races_data = []
         blocked_count = 0
+        unbetable_count = 0
         for sr, race, meeting in top_runners:
             key = f"{meeting.course}_{race.time}"
             if key in top_race_keys:
@@ -1205,12 +1235,21 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
             if not _meets_class_floor(race):
                 blocked_count += 1
                 continue
+            race_scored = races_by_key[key][0]
+            if _top_betable_score(race_scored) < 70:
+                unbetable_count += 1
+                continue
             top_race_keys.add(key)
             top_races_data.append(races_by_key[key])
 
         if blocked_count:
             logger.info(
                 f"Class floor blocked {blocked_count} race(s) (X: Flat C4+, NH C3+)"
+            )
+        if unbetable_count:
+            logger.info(
+                f"Betable-threshold gate skipped {unbetable_count} race(s) — "
+                f"only 70+ scorer was sub-evens-blocked"
             )
         logger.info(
             f"Scored {len(all_scored)} runners across {len(meetings)} meetings. "
