@@ -137,6 +137,24 @@ class Runner:
     recent_results: Optional[list] = None
 
 
+def _extract_race_time(data: dict) -> str:
+    """Return race time as unambiguous 24-hour HH:MM.
+
+    Racing API returns off_time as 12-hour without AM/PM ("8:30") which
+    downstream LLM/display logic mistakes for AM. off_dt is the ISO
+    datetime with the actual hour — prefer it when present, fall back to
+    off_time only when off_dt is missing.
+    """
+    off_dt = (data.get("off_dt") or "").strip()
+    if off_dt:
+        try:
+            dt = datetime.fromisoformat(off_dt)
+            return dt.strftime("%H:%M")
+        except (ValueError, TypeError):
+            pass
+    return data.get("off_time", "")
+
+
 @dataclass
 class Race:
     time: str
@@ -573,7 +591,7 @@ class Scraper:
     def _parse_race(self, data: dict) -> Race:
         """Parse a race from API response into our Race dataclass."""
         race = Race(
-            time=data.get("off_time", ""),
+            time=_extract_race_time(data),
             name=data.get("race_name", ""),
             course=data.get("course", ""),
             distance=data.get("distance", ""),
