@@ -13,7 +13,12 @@ RACING_API_PASSWORD = os.getenv("RACING_API_PASSWORD")
 
 # Claude API (judgement analysis only - data comes from Racing API)
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-JUDGEMENT_MODEL = os.getenv("JUDGEMENT_MODEL", "claude-opus-4-6")
+# Moved 4.6 → 4.8 on 1 Jun 2026. 4.6 was a deliberate roll-back from 4.7
+# (5 May 2026) because 4.7 inflated judgement-layer scores (Precise 104,
+# Star Prospect 88, Fairlawn Flyer 81 @ 22/1). 4.8 adopted with the now-
+# stronger guardrails (NAP/NB price caps, C5/6 score-market gate, temp=0,
+# NB-of-day score floor) as the safety net. Watch early cards for inflation.
+JUDGEMENT_MODEL = os.getenv("JUDGEMENT_MODEL", "claude-opus-4-8")
 
 # Scheduling (24h format, UK timezone)
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")

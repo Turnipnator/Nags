@@ -892,6 +892,51 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                 f"(field {nb_field}) to race SEL stake"
             )
 
+    # CHECK 13: NB-OF-DAY SCORE FLOOR (added 1 Jun 2026)
+    # Operating Policy: the NB-of-day must score 70+. Anything 55-64 is
+    # "small E/W only, optional"; below 55 is skip. The bot had price-cap,
+    # field-size and C5/C6 score-market gates on the NB-of-day slot but NO
+    # check against the 70+ floor itself — so when only one genuine 70+
+    # horse existed on the card, the LLM reached down to a sub-70 horse to
+    # fill the second slot and it kept the 1.5pt premium stake. Triggered by
+    # Newbury 14:50 1 Jun 2026: Electrifarhh scored 64 yet was made NB-of-day
+    # at 9/1 with a 1.5pt E/W stake → came nowhere. The 64 was an honest LOW
+    # score; the staking layer ignored it. A one-pick (NAP-only) day is the
+    # correct outcome when nothing else clears 70 — never force a sub-70 NB.
+    if len(sels) > 1:
+        nb_of_day = sels[1]
+        nb_day_score = nb_of_day.get("adjusted_score", 0) or 0
+        already_demoted = nb_of_day.get("nb_price_capped", False)
+        if nb_day_score < 70 and not already_demoted:
+            old_horse = nb_of_day.get("horse", "")
+            nb_of_day["nb_price_capped"] = True
+            # 55-69: keep as a 0.75pt race SEL (small E/W). Force E/W so the
+            # demoted stake captures the place leg where a pool exists.
+            nb_meta = _resolve_race_meta(nb_of_day, race_meta_lookup)
+            nb_field = nb_meta.get("num_runners", 0) or 0
+            ew_note = ""
+            if nb_field == 0 or nb_field >= 5:
+                if not nb_of_day.get("each_way"):
+                    nb_of_day["each_way"] = True
+                    ew_note = " (E/W forced on)"
+            compliance_fixes.append(
+                f"NB-OF-DAY SCORE FLOOR: {old_horse} scored {nb_day_score} (< 70 "
+                f"Operating Policy NB threshold) — demoted to race SEL stake "
+                f"(0.75pt). NB-of-day requires 70+; never force a sub-70 NB{ew_note}"
+            )
+            logger.info(
+                f"Compliance: NB-of-day score floor demoted {old_horse} "
+                f"(score {nb_day_score} < 70) to race SEL stake"
+            )
+            # Below 55 = skip territory. Keep index stability (other checks
+            # depend on positions) but flag strongly for the analyst to drop.
+            if nb_day_score < 55:
+                compliance_fixes.append(
+                    f"NB-OF-DAY BELOW 55: {old_horse} ({nb_day_score}) is in SKIP "
+                    f"territory per Operating Policy — kept in list but consider "
+                    f"dropping entirely, not just demoting"
+                )
+
     # CHECK 8: AW CLASS 5/6 WEIGHT-RISE BLOCKER (Rule A — added 7 May 2026)
     # 3+ wins in last 5 starts AND Spotlight indicates a +7lb rise → max NB
     # role (NAP demoted). +10lb → flag in compliance log as "should skip".
