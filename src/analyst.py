@@ -1375,6 +1375,7 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
         }
 
     # Step 3: Claude judgement
+    fallback_reason = "Claude returned no selections (empty response)"
     try:
         selections = _run_claude_judgement(
             top_races_data, meetings, tips_text, going_reports,
@@ -1389,10 +1390,13 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
             return selections
         logger.warning("Claude returned empty, falling back to programmatic")
     except Exception as e:
-        logger.error(f"Claude judgement failed: {e}", exc_info=True)
+        fallback_reason = _describe_api_error(e)
+        logger.error(f"Claude judgement failed: {fallback_reason}", exc_info=True)
 
     # Step 4: Fallback (also gets compliance gate)
-    fallback = _programmatic_cherry_pick(top_races_data, n_races=n_races)
+    fallback = _programmatic_cherry_pick(
+        top_races_data, n_races=n_races, fallback_reason=fallback_reason
+    )
     fallback = _enforce_compliance(fallback, scored_lookup, race_meta_lookup)
     return fallback
 
@@ -1557,7 +1561,30 @@ def _run_claude_judgement(top_races_data: list, meetings: list[Meeting],
     return json.loads(text)
 
 
-def _programmatic_cherry_pick(top_races_data: list, n_races: int = None) -> dict:
+def _describe_api_error(e: Exception) -> str:
+    """Build a concise fallback reason that surfaces the REAL failure cause.
+
+    The old fallback note always said "Claude API unavailable", which was
+    misleading: on 5 Jun 2026 a 400 (deprecated `temperature` param on
+    opus-4-8) was reported as an outage and cost a confusing morning. When the
+    failure is an API rejection the anthropic SDK exception carries a
+    `.status_code` — surface it so HTTP 400/401/404/429 (our bug / bad key /
+    bad model / rate limit) is instantly distinguishable from a genuine
+    connectivity outage (no status_code → APIConnectionError etc.).
+    """
+    status = getattr(e, "status_code", None)
+    etype = type(e).__name__
+    msg = str(e)
+    if len(msg) > 200:
+        msg = msg[:200] + "…"
+    if status is not None:
+        return f"Claude API HTTP {status} ({etype}): {msg}"
+    return f"Claude judgement error ({etype}): {msg}"
+
+
+def _programmatic_cherry_pick(
+    top_races_data: list, n_races: int = None, fallback_reason: str = None
+) -> dict:
     """Fallback: pick top SEL+NB per race from programmatic scores alone."""
     all_picks = []
     for scored_runners, race, meeting in top_races_data:
@@ -1619,7 +1646,11 @@ def _programmatic_cherry_pick(top_races_data: list, n_races: int = None) -> dict
         "selections": selections,
         "double": double,
         "nap_index": nap_idx,
-        "notes": "Programmatic fallback (Claude API unavailable)",
+        "notes": (
+            f"Programmatic fallback — {fallback_reason}"
+            if fallback_reason
+            else "Programmatic fallback (no LLM judgement layer)"
+        ),
     }
 
 
