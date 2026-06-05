@@ -1515,13 +1515,17 @@ def _run_claude_judgement(top_races_data: list, meetings: list[Meeting],
     response = client.messages.create(
         model=JUDGEMENT_MODEL,
         max_tokens=6000,
-        # Pinned to 0 (22 May 2026) for determinism: identical input → identical
-        # selections, so any run-to-run difference is a REAL change (odds drift,
-        # Timeform update, non-runner) rather than sampler noise. Matters for a
-        # real-money rubric-based system and makes prompt/CLAUDE.md tuning
-        # measurable. Triggered by 22 May Goodwood: two runs of the same card
-        # diverged at the margin (St Mawes in/out) purely from default temp=1.0.
-        temperature=0,
+        # NOTE (5 Jun 2026): the `temperature=0` pin (added 22 May 2026 for
+        # determinism) was REMOVED here. claude-opus-4-8 (adopted 1 Jun 2026)
+        # DEPRECATES the temperature param and returns 400 invalid_request_error
+        # ("`temperature` is deprecated for this model"). With the pin in place
+        # every judgement call 400'd in <1s → the "programmatic fallback (Claude
+        # API unavailable)" path fired → raw deterministic picks with no CLAUDE.md
+        # judgement layer (Stellar Sunrise 86 "22/22", Celeborn out of an 18r
+        # cavalry-charge handicap, 5 Jun Epsom). Determinism is now whatever the
+        # model defaults to; the 22 May reproducibility guarantee no longer holds
+        # via this param. Re-add temperature ONLY if reverting to a model that
+        # accepts it (e.g. claude-opus-4-6).
         system=ANALYST_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}],
     )
