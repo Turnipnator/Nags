@@ -766,7 +766,19 @@ class Scorer:
         #   - AW when today is turf (or turf when today is AW) — surface mismatch
         #   - Qualified in Spotlight as "weak form for the grade" etc.
 
-        today_class_lc = (race.race_class or "").lower()
+        # Resolve today's class level from PATTERN first, then race_class.
+        # A Listed/Group race carries race_class="Class 1" with the true level
+        # held in `pattern` ("Listed"/"Group N"). Reading race_class alone
+        # under-reads EVERY pattern race to level 7, so a prior Listed/Group
+        # placing wrongly registers as a class DROP and misfires the kicker.
+        # Confirmed 5 Jun 2026 (Epsom Oaks day): Stellar Sunrise got +3 for a
+        # Listed→Listed move he finished 3rd in (King Charles II Stks), and
+        # Legacy Link got +5 for a Group 3 win into the Group 1 Oaks — a class
+        # RISE that should carry zero drop bonus. Both inflated into the bot's
+        # top two picks. Mirrors the enrichment side (scraper.fetch_recent_race
+        # _classes), which already resolves pattern before class_str. Empty
+        # pattern (plain handicaps) → string is just race_class → unchanged.
+        today_class_lc = f"{race.pattern or ''} {race.race_class or ''}".lower()
         is_nh_race = (race.race_type or "").lower() in ("chase", "hurdle", "nh flat")
         class_map = CLASS_LEVELS_NH if is_nh_race else CLASS_LEVELS_FLAT
         today_level = None
