@@ -641,9 +641,14 @@ class Scraper:
             pass
 
         # Parse OR, RPR, TS
+        # Racing API schema change (~mid-June 2026): the premium analyst fields
+        # were renamed/relocated. `rpr`/`ts`/`spotlight` now come back EMPTY;
+        # the data moved to `performance_rating`/`speed_rating`/`comment`.
+        # Read the new keys first, fall back to the legacy keys so the parser
+        # works regardless of which schema the API serves. `ofr` was unchanged.
         ofr = self._safe_int(data.get("ofr"))
-        rpr = self._safe_int(data.get("rpr"))
-        ts = self._safe_int(data.get("ts"))
+        rpr = self._safe_int(data.get("performance_rating") or data.get("rpr"))
+        ts = self._safe_int(data.get("speed_rating") or data.get("ts"))
 
         # Parse headgear
         headgear = data.get("headgear", "") or ""
@@ -681,8 +686,9 @@ class Scraper:
         dam = data.get("dam", "")
         damsire = data.get("damsire", "")
 
-        # Spotlight comment
-        spotlight = data.get("spotlight", "") or ""
+        # Spotlight comment (renamed to `comment` in the mid-June 2026 schema
+        # change; fall back to legacy `spotlight` key).
+        spotlight = data.get("comment") or data.get("spotlight") or ""
 
         # Medical history
         medical = data.get("medical", [])
