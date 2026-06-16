@@ -174,6 +174,13 @@ class Race:
     rail_movements: Optional[str] = None
     stalls: Optional[str] = None
     weather: Optional[str] = None
+    # Racing API machine analyst fields (added in the mid-June 2026 schema
+    # change). `api_tip` is the API's own single selection for the race;
+    # `api_verdict` is its prose big-race verdict. CONFIRMATION-ONLY: these
+    # never feed scoring or selection — they are used solely to stamp the
+    # NAP "API-validated" when the API tip matches our scored NAP exactly.
+    api_tip: Optional[str] = None
+    api_verdict: Optional[str] = None
 
 
 @dataclass
@@ -606,6 +613,8 @@ class Scraper:
             rail_movements=data.get("rail_movements", ""),
             stalls=data.get("stalls", ""),
             weather=data.get("weather", ""),
+            api_tip=(data.get("tip") or "").strip() or None,
+            api_verdict=(data.get("verdict") or "").strip() or None,
         )
 
         for runner_data in data.get("runners", []):

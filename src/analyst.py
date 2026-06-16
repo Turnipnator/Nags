@@ -1141,6 +1141,48 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                 )
                 logger.info(f"Compliance: System-resistant race, NAP removed for {sel['horse']}")
 
+    # CHECK 14: RACING API NAP CROSS-CHECK (confirmation-only — added 16 Jun 2026)
+    # The Racing API now serves its own per-race machine selection (`api_tip`).
+    # This is a PURE CONFIRMATION SIGNAL — it never feeds scoring or selection.
+    # Runs LAST, after every other gate has finalised nap_index, and only ever
+    # READS the NAP our framework scoring produced. It can stamp the NAP
+    # "API-validated" but can NEVER create, promote, swap or restore a NAP
+    # (it never assigns a non-negative nap_index). Per user requirement
+    # (16 Jun 2026): validation requires 100% agreement — the API tip must
+    # match our scored NAP EXACTLY (after name normalisation). If they
+    # disagree, the NAP stands on our scoring; it simply isn't API-validated.
+    def _norm_name(s: str) -> str:
+        return " ".join((s or "").strip().lower().split())
+
+    selections["nap_api_validated"] = False
+    nap_idx = selections.get("nap_index", -1)
+    if nap_idx is not None and 0 <= nap_idx < len(sels):
+        nap = sels[nap_idx]
+        nap_horse = nap.get("horse", "")
+        nap_meta = _resolve_race_meta(nap, race_meta_lookup)
+        api_tip = nap_meta.get("api_tip", "") if nap_meta else ""
+        if api_tip:
+            if _norm_name(api_tip) == _norm_name(nap_horse):
+                selections["nap_api_validated"] = True
+                compliance_fixes.append(
+                    f"NAP API-VALIDATED: our scored NAP {nap_horse} == "
+                    f"Racing API tip — 100% agreement"
+                )
+                logger.info(
+                    f"Compliance: NAP {nap_horse} API-VALIDATED "
+                    f"(Racing API tip agrees)"
+                )
+            else:
+                compliance_fixes.append(
+                    f"NAP NOT API-VALIDATED: our scored NAP {nap_horse} "
+                    f"!= Racing API tip ({api_tip}) — NAP stands on our "
+                    f"scoring, no validation stamp"
+                )
+                logger.info(
+                    f"Compliance: NAP {nap_horse} not API-validated "
+                    f"(API tip: {api_tip})"
+                )
+
     # Log all fixes
     if compliance_fixes:
         existing_log = selections.get("compliance_log", [])
@@ -1368,6 +1410,7 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
             "surface": race.surface or "",
             "going": going_str,
             "going_detailed": going_detailed_synth,
+            "api_tip": getattr(race, "api_tip", "") or "",
             "runners": [
                 (sr.runner.name.lower(), _parse_odds_to_decimal(sr.runner.odds or ""))
                 for sr in scored_runners
