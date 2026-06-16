@@ -227,6 +227,58 @@ def _top_betable_score(race_scored: list) -> float:
     return best
 
 
+# Pass-the-race rule (added 16 Jun 2026). When the market FAVOURITE is
+# sub-evens-blocked AND is clearly the best horse on RPR, backing the
+# leftover (2nd-best) horse is a poor spot — the right move is to PASS
+# the race, not promote the runner-up. Mirrors the manual judgement that
+# caught the bot NAPping Gstaad (88) in the St James's Palace when Bow Echo
+# (RPR 137, 10/11 blocked) was 11 RPR clear of Gstaad (126): two-horse race,
+# best horse removed on price → the bot scored the leftover high and NAP'd it.
+# The betable-threshold gate doesn't catch this (the leftover scored 88, well
+# over 70); this rule keys on the blocked favourite's RPR DOMINANCE instead.
+DOMINANT_FAV_RPR_GAP = 8   # blocked fav must be ≥8 RPR clear of best betable
+
+
+def _blocked_favourite_dominates(race_scored: list) -> tuple:
+    """Return (should_pass, detail) when the market favourite is sub-evens-
+    blocked (decimal multiplier ≤ 1.0) AND its RPR is ≥ DOMINANT_FAV_RPR_GAP
+    clear of the best RPR among betable (above-evens) runners.
+
+    Requires RPR on the blocked favourite AND at least one betable runner —
+    if the data isn't there to measure dominance, the rule does NOT fire
+    (returns False) rather than guessing. Scope is class-agnostic: a blocked
+    dominant favourite is a pass spot at any level."""
+    priced = [
+        (sr, _parse_odds_to_decimal(getattr(sr.runner, "odds", "") or ""))
+        for sr in race_scored
+    ]
+    priced = [(sr, d) for sr, d in priced if d > 0]
+    if not priced:
+        return (False, "")
+    fav_sr, fav_dec = min(priced, key=lambda x: x[1])
+    if fav_dec > 1.0:  # favourite is betable (above evens) — rule N/A
+        return (False, "")
+    fav_rpr = getattr(fav_sr.runner, "rpr", None)
+    if not fav_rpr:  # no RPR on the blocked fav — can't measure dominance
+        return (False, "")
+    betable_rprs = [
+        getattr(sr.runner, "rpr", None) for sr, d in priced if d > 1.0
+    ]
+    betable_rprs = [r for r in betable_rprs if r]
+    if not betable_rprs:
+        return (False, "")  # no betable horse with RPR — betable gate owns this
+    best_betable_rpr = max(betable_rprs)
+    gap = fav_rpr - best_betable_rpr
+    if gap >= DOMINANT_FAV_RPR_GAP:
+        return (
+            True,
+            f"{fav_sr.runner.name} {fav_sr.runner.odds} (RPR {fav_rpr}) "
+            f"sub-evens-blocked and {gap} RPR clear of best betable "
+            f"(RPR {best_betable_rpr}) — PASS the race",
+        )
+    return (False, "")
+
+
 # Price caps (added 5 May 2026 after Fairlawn Flyer 22/1 NAP at Ffos Las
 # scored 81 despite 149-day absence — the framework had no way to
 # express "the market thinks this is a 4% shot, so 'NAP' is wrong even
@@ -1260,9 +1312,21 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
         # races where the framework has no validated edge. Group/Listed/
         # Grade always pass; Flat C5/C6/C7 blocked; NH C4/C5 blocked.
         before_class = [r for r in ranked if _top_betable_score(r[2]) >= 70]
-        qualifying = [r for r in before_class if _meets_class_floor(r[3])]
+        before_domfav = [r for r in before_class if _meets_class_floor(r[3])]
+        # Pass-the-race rule (16 Jun 2026): drop races where the sub-evens-
+        # blocked favourite dominates the betable field on RPR (≥8 clear).
+        qualifying = [r for r in before_domfav
+                      if not _blocked_favourite_dominates(r[2])[0]]
         dropped_score = len(ranked) - len(before_class)
-        dropped_class = len(before_class) - len(qualifying)
+        dropped_class = len(before_class) - len(before_domfav)
+        dropped_domfav = len(before_domfav) - len(qualifying)
+        if dropped_domfav:
+            for top_score, gap, race_scored, race, meeting in before_domfav:
+                fired, detail = _blocked_favourite_dominates(race_scored)
+                if fired:
+                    logger.info(
+                        f"  → DROPPED-domfav: {meeting.course} {race.time} | {detail}"
+                    )
         if dropped_score:
             # Detailed log for each dropped-by-betable race — needed for
             # paper-trade evaluation of whether the fix is throwing away
@@ -1338,6 +1402,8 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
         blocked_count = 0
         unbetable_count = 0
         unbetable_details = []
+        domfav_count = 0
+        domfav_details = []
         for sr, race, meeting in top_runners:
             key = f"{meeting.course}_{race.time}"
             if key in top_race_keys:
@@ -1361,6 +1427,13 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
                     f"{meeting.course} {race.time} | sub-evens [{sub_desc}] vs betable [{bet_desc}]"
                 )
                 continue
+            # Pass-the-race rule (16 Jun 2026): drop races where the sub-evens-
+            # blocked favourite dominates the betable field on RPR (≥8 clear).
+            domfav_fired, domfav_detail = _blocked_favourite_dominates(race_scored)
+            if domfav_fired:
+                domfav_count += 1
+                domfav_details.append(f"{meeting.course} {race.time} | {domfav_detail}")
+                continue
             top_race_keys.add(key)
             top_races_data.append(races_by_key[key])
 
@@ -1375,6 +1448,13 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
             )
             for line in unbetable_details:
                 logger.info(f"  → DROPPED-betable: {line}")
+        if domfav_count:
+            logger.info(
+                f"Pass-the-race rule skipped {domfav_count} race(s) — sub-evens "
+                f"favourite dominates betable field on RPR (≥{DOMINANT_FAV_RPR_GAP})"
+            )
+            for line in domfav_details:
+                logger.info(f"  → DROPPED-domfav: {line}")
         logger.info(
             f"Scored {len(all_scored)} runners across {len(meetings)} meetings. "
             f"Top {len(top_races_data)} races ({len(top_runners)} runners) sent for judgement."
