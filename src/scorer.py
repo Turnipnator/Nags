@@ -152,6 +152,54 @@ def _rule18b_scope(race) -> bool:
     return any(x in rc for x in ("class 1", "class 2", "class 3", "class 4"))
 
 
+# Scorer recalibration (added 30 Jun 2026). Two coupled fixes diagnosed on
+# Musselburgh 30 Jun, where the deterministic scorer INVERTED the field: The
+# Gay Blade (C4 hcap, OR 71 / RPR 81 / TS 65 — the LOWEST TS in its race)
+# scored 90, while genuine class horses (Son RPR 93/TS 92; cross-card High
+# Degree RPR 105/TS 118) sat at 63-65. Root cause: the positional block
+# (Form 22 + Course 15 + Going 15 + Distance 12 = 64) can be fully banked by a
+# low-rated course specialist, while ability (Class 12 + Speed 8) is only a
+# fifth of the score — so course/form accumulation buries the clock.
+# (1) Bug 3: _score_form weighted the OLDEST run heaviest; corrected to weight
+#     the MOST RECENT heaviest (all classes — pure correctness).
+# (2) ABILITY ANCHOR: in non-premium handicaps (Flat C4 & below / NH C3 &
+#     below, tier <= 4) scale the positional block by how the runner's best
+#     figure ranks within today's field. Premium classes (tier >= 5) untouched.
+# Feature-flagged for instant revert; needs a paper-trade (moves every score).
+SCORER_RECAL_ENABLED = True
+
+
+def _ability_factor(runner, race) -> float:
+    """Ability anchor for the positional block (added 30 Jun 2026).
+
+    Returns a multiplier in [0.7, 1.0] applied to Form+Course+Going+Distance
+    in non-premium handicaps only. 1.0 = no change (premium class, the
+    field-best horse, or insufficient data). Scales linearly with the
+    runner's best figure (RPR/TS/OR) between the field min (0.7) and field
+    max (1.0). A C&D specialist far below the field on the clock can no
+    longer out-score the field on course/form alone. Never raises."""
+    if not SCORER_RECAL_ENABLED:
+        return 1.0
+    tier = _race_class_tier(race)
+    if tier is None or tier >= 5:  # premium: Flat C3+/NH C2+/Listed/Group/Grade
+        return 1.0
+
+    def best_fig(r):
+        vals = [v for v in (getattr(r, "rpr", None), getattr(r, "speed_figure", None),
+                            getattr(r, "official_rating", None)) if v]
+        return max(vals) if vals else None
+
+    mine = best_fig(runner)
+    figs = [f for f in (best_fig(r) for r in race.runners) if f is not None]
+    if mine is None or len(figs) < 3:
+        return 1.0
+    fmax, fmin = max(figs), min(figs)
+    if fmax == fmin:
+        return 1.0
+    frac = (mine - fmin) / (fmax - fmin)
+    return round(0.7 + 0.3 * max(0.0, min(1.0, frac)), 3)
+
+
 def _form_chars(form_str: str) -> str:
     """Strip season-break separators from a form string. Returns the
     chronological digit/letter sequence (LEFT = OLDEST, RIGHT = MOST
@@ -196,6 +244,20 @@ class Scorer:
         score.course_score = self._score_course(runner, race)
         score.going_score = self._score_going(runner, race)
         score.distance_score = self._score_distance(runner, race)
+        # Ability anchor (30 Jun 2026): in non-premium handicaps, scale the
+        # positional block (Form+Course+Going+Distance) by the runner's
+        # figure-rank within today's field so a low-rated course specialist
+        # cannot out-score the field on course/form alone. No-op (1.0) at
+        # premium class, for the field-best horse, or with insufficient data.
+        af = _ability_factor(runner, race)
+        if af != 1.0:
+            score.form_score = round(score.form_score * af, 1)
+            score.course_score = round(score.course_score * af, 1)
+            score.going_score = round(score.going_score * af, 1)
+            score.distance_score = round(score.distance_score * af, 1)
+            logger.debug(
+                f"Ability anchor {runner.name}: x{af} on positional block"
+            )
         score.class_score = self._score_class(runner, race)
         score.speed_score = self._score_speed(runner, race)
         score.weight_score = self._score_weight(runner, race)
@@ -273,37 +335,52 @@ class Scorer:
         points = 0.0
         total_weight = 0.0
 
-        # NOTE: weights[0] is applied to form[0]. Per Racing API convention,
-        # form[0] is the OLDEST visible run (right-end = most recent). This
-        # weighting is a pre-existing bug — see CLAUDE.md "Bug 3" note.
-        # Rule 18b operates on the correct convention internally.
+        # Recency weighting. Bug 3 (pre-30 Jun 2026): weights[0] was applied to
+        # form[0] = the OLDEST run, so a horse's most recent runs counted LEAST.
+        # Corrected under SCORER_RECAL so the MOST RECENT run carries the
+        # heaviest weight. `excused` (Rule 18b) indexes the FULL form string
+        # (0 = oldest), so both branches test the full-form index against it.
         weights = [3.0, 2.5, 2.0, 1.5, 1.0, 0.5]
+        form_len = len(form)
 
-        for i, char in enumerate(form[:6]):
-            if i >= len(weights):
-                break
-            if i in excused:
-                continue  # Rule 18b: skip — treat as missing data
-            w = weights[i]
-            total_weight += w
+        def _pos_value(ch, w):
+            if ch == "1":
+                return w * 1.0  # Win
+            if ch == "2":
+                return w * 0.75  # Second
+            if ch == "3":
+                return w * 0.6  # Third
+            if ch in ("4", "5"):
+                return w * 0.35  # Thereabouts
+            if ch == "6":
+                return w * 0.2
+            if ch in ("F", "U"):
+                return w * 0.15  # Falls/unseatings — don't bury class horses
+            if ch == "P":
+                return w * 0.05  # Pulled up is worse
+            if ch in ("0", "7", "8", "9"):
+                return w * 0.1  # Well beaten
+            return 0.0
 
-            if char == "1":
-                points += w * 1.0  # Win
-            elif char == "2":
-                points += w * 0.75  # Second
-            elif char == "3":
-                points += w * 0.6  # Third
-            elif char in ("4", "5"):
-                points += w * 0.35  # Thereabouts
-            elif char == "6":
-                points += w * 0.2
-            elif char in ("F", "U"):
-                # Falls/unseatings - don't heavily penalise class horses
-                points += w * 0.15
-            elif char == "P":
-                points += w * 0.05  # Pulled up is worse
-            elif char in ("0", "7", "8", "9"):
-                points += w * 0.1  # Well beaten
+        if SCORER_RECAL_ENABLED:
+            # Correct: most recent run (rightmost) weighted heaviest.
+            for k in range(min(6, form_len)):
+                idx = form_len - 1 - k
+                if idx in excused:
+                    continue  # Rule 18b: skip — treat as missing data
+                w = weights[k]
+                total_weight += w
+                points += _pos_value(form[idx], w)
+        else:
+            # Legacy (Bug 3) weighting — oldest run heaviest.
+            for i, char in enumerate(form[:6]):
+                if i >= len(weights):
+                    break
+                if i in excused:
+                    continue
+                w = weights[i]
+                total_weight += w
+                points += _pos_value(char, w)
 
         if total_weight > 0:
             normalised = points / total_weight
@@ -404,13 +481,23 @@ class Scorer:
         return {chosen[0]}
 
     def _check_improving(self, form: str) -> bool:
-        """Check if last 3 runs show improving trend."""
+        """Check if the last 3 runs show an improving trend.
+
+        Bug 3 sibling (fixed 30 Jun 2026): this read form[:3] (the 3 OLDEST
+        runs) and tested ascending finish numbers — which actually flags a
+        DECLINING horse as improving. Corrected to read the 3 MOST RECENT
+        runs (form[-3:], oldest→newest) and flag improvement when finishing
+        positions get smaller (better) toward the present."""
+        if SCORER_RECAL_ENABLED:
+            positions = [int(c) for c in form[-3:] if c.isdigit()]
+            if len(positions) >= 3:
+                return positions[0] >= positions[1] >= positions[2]
+            return False
         positions = []
         for char in form[:3]:
             if char.isdigit():
                 positions.append(int(char))
         if len(positions) >= 3:
-            # Improving if each run is same or better than previous
             return positions[0] <= positions[1] <= positions[2]
         return False
 
