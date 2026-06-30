@@ -1881,7 +1881,18 @@ def format_selections_telegram(selections: dict) -> str:
         msg += "═══════════════════════════\n"
         msg += "⚠️ *NO NAP TODAY*\n"
         msg += "═══════════════════════════\n"
-        msg += "Nothing scored 75+. Flat 1pt stakes across all selections.\n"
+        # nap_idx can be -1 for two different reasons: nothing cleared the 75
+        # threshold, OR a compliance gate (going volatility, sub-evens, price
+        # cap, system-resistant, score-market) blocked an otherwise NAP-grade
+        # top scorer. Report whichever actually applies (don't claim "nothing
+        # scored 75+" when the top pick is e.g. 82 but the going gate blocked it).
+        top_score = max((s.get("adjusted_score", 0) or 0) for s in sels)
+        if top_score >= NAP_THRESHOLD:
+            msg += (f"Top pick scored {top_score:.0f}/100 but the NAP was "
+                    f"blocked by the compliance gate (see below). Flat 1pt "
+                    f"stakes across all selections.\n")
+        else:
+            msg += "Nothing scored 75+. Flat 1pt stakes across all selections.\n"
 
     # Next Best (rank 2)
     if len(sels) >= 2 and nap_idx >= 0:
