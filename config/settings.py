@@ -20,6 +20,36 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 # NB-of-day score floor) as the safety net. Watch early cards for inflation.
 JUDGEMENT_MODEL = os.getenv("JUDGEMENT_MODEL", "claude-opus-4-8")
 
+# Judgement-layer guardrails (added 30 Jun 2026) — make the bot's score
+# MODEL-AGNOSTIC so the Telegram output is reproducible and converges with the
+# manual rubric instead of drifting with the model. Diagnosis 30 Jun 2026
+# (Musselburgh): the LLM emits a FREE-FORM adjusted_score that overrides the
+# deterministic rubric in either direction (The Gay Blade C4 90 from a far-lower
+# anchor; High Degree figures-leader deflated to 68). A free-form number drifts
+# between models AND between runs — reverting 4.8→4.6 does not cure it, it just
+# changes which way it drifts. These two gates bound it structurally.
+#
+# ANCHOR CLAMP — bound the LLM's adjusted_score to the deterministic rubric
+# anchor (scorer total) ± a band. UP tight: legitimate documented upgrades fit
+# inside it (e.g. the Bellarchi excused-last-run +13), runaway inflation does
+# not. DOWN loose: LLM Spotlight downgrades are legitimate and lose no money.
+# Caveat: Bug 3 (reversed form weighting) still deflates the anchor for recent-
+# momentum horses — that is the horse type we WANT clamped — once Bug 3 is fixed
+# (its own paper-trade) the UP band can tighten toward ~8.
+JUDGEMENT_CLAMP_ENABLED = os.getenv("JUDGEMENT_CLAMP_ENABLED", "true").lower() == "true"
+JUDGEMENT_UP_BAND = float(os.getenv("JUDGEMENT_UP_BAND", "14"))
+JUDGEMENT_DOWN_BAND = float(os.getenv("JUDGEMENT_DOWN_BAND", "25"))
+
+# GENERAL SCORE-VS-MARKET GATE — demote NAP/NB when the score is high but the
+# price is long (rubric-vs-market divergence) at ANY class, generalising the
+# 8 May 2026 C5/6-only Option B. C5/6 keeps its stricter 80 floor; other classes
+# use GENERAL_GATE_SCORE. The 9.0 (8/1) odds floor is the real safety valve:
+# short-priced premium NAPs (e.g. Brighterdaysahead 9/4) never trip it, so
+# legitimate championship-class short NAPs are untouched — only LONG-priced
+# high scores get gated.
+GENERAL_GATE_SCORE = float(os.getenv("GENERAL_GATE_SCORE", "82"))
+GENERAL_GATE_ODDS = float(os.getenv("GENERAL_GATE_ODDS", "9.0"))
+
 # Scheduling (24h format, UK timezone)
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 SCRAPE_TIME = os.getenv("SCRAPE_TIME", "07:00")

@@ -17,7 +17,11 @@ from typing import Optional
 
 import anthropic
 
-from config.settings import ANTHROPIC_API_KEY, JUDGEMENT_MODEL, NAP_THRESHOLD
+from config.settings import (
+    ANTHROPIC_API_KEY, JUDGEMENT_MODEL, NAP_THRESHOLD,
+    JUDGEMENT_CLAMP_ENABLED, JUDGEMENT_UP_BAND, JUDGEMENT_DOWN_BAND,
+    GENERAL_GATE_SCORE, GENERAL_GATE_ODDS,
+)
 from src.scraper import Runner, Race, Meeting
 from src.scorer import RunnerScore, Scorer
 
@@ -765,6 +769,56 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
 
     compliance_fixes = []
 
+    # CHECK 0: ANCHOR CLAMP (added 30 Jun 2026) — bound the LLM judgement layer.
+    # The LLM returns a FREE-FORM adjusted_score that can override the
+    # deterministic rubric in either direction; an unbounded number drifts
+    # between models and between runs and is the dominant cause of bot-vs-manual
+    # divergence (The Gay Blade C4 90 from a far-lower anchor, 30 Jun Musselburgh).
+    # Fix: clamp each adjusted_score to its deterministic anchor (scored_lookup
+    # total) ± a band — tight UP (legit documented upgrades fit; runaway inflation
+    # does not), loose DOWN (Spotlight downgrades are legit, lose no money).
+    # Runs BEFORE every other check so swaps / caps / gates all see clamped scores.
+    # Model-agnostic: survives any future model swap. Feature-flagged for revert.
+    def _clamp_score(name: str, raw):
+        sr = scored_lookup.get(name.lower()) if name else None
+        if sr is None:
+            return None, None, None
+        anchor = float(sr.total)
+        raw = anchor if raw in (None, 0) else float(raw)
+        clamped = max(anchor - JUDGEMENT_DOWN_BAND,
+                      min(anchor + JUDGEMENT_UP_BAND, raw))
+        return round(clamped, 1), anchor, raw
+
+    if JUDGEMENT_CLAMP_ENABLED:
+        for sel in sels:
+            clamped, anchor, raw = _clamp_score(
+                sel.get("horse", ""), sel.get("adjusted_score", 0))
+            if clamped is not None and abs(clamped - raw) >= 0.5:
+                sel["adjusted_score"] = clamped
+                compliance_fixes.append(
+                    f"ANCHOR CLAMP: {sel.get('horse','')} LLM score {raw:.0f} "
+                    f"clamped to {clamped:.0f} (rubric anchor {anchor:.0f}, "
+                    f"+{JUDGEMENT_UP_BAND:.0f}/-{JUDGEMENT_DOWN_BAND:.0f})"
+                )
+                logger.info(
+                    f"Compliance: anchor clamp {sel.get('horse','')} "
+                    f"{raw:.0f}->{clamped:.0f} (anchor {anchor:.0f})"
+                )
+            nb = sel.get("next_best") or {}
+            nb_clamped, nb_anchor, nb_raw = _clamp_score(
+                nb.get("horse", ""), nb.get("adjusted_score", 0))
+            if nb_clamped is not None and abs(nb_clamped - nb_raw) >= 0.5:
+                nb["adjusted_score"] = nb_clamped
+                # keep the selection-level nb_score mirror in sync (the market-
+                # swap check reads it as a backup source for the NB score)
+                if sel.get("nb_score"):
+                    sel["nb_score"] = nb_clamped
+                compliance_fixes.append(
+                    f"ANCHOR CLAMP (NB): {nb.get('horse','')} LLM score "
+                    f"{nb_raw:.0f} clamped to {nb_clamped:.0f} "
+                    f"(rubric anchor {nb_anchor:.0f})"
+                )
+
     for i, sel in enumerate(sels):
         horse = sel.get("horse", "")
         odds = sel.get("odds_guide", "")
@@ -1083,35 +1137,43 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
         odds = sel.get("odds_guide", "")
         dec = _parse_odds_to_decimal(odds)
         meta = _resolve_race_meta(sel, race_meta_lookup)
-        if not _is_c5_or_c6_any(meta):
+        # Generalised 30 Jun 2026: the gate now fires at ANY class. C5/6 keeps
+        # the stricter 80 floor; all other classes use GENERAL_GATE_SCORE (82).
+        # The 9.0 (8/1) odds floor is the real safety valve — short-priced
+        # premium NAPs (e.g. Brighterdaysahead 9/4) never trip it, so legitimate
+        # championship short NAPs are untouched; only LONG-priced high scores get
+        # gated. This is the rubric-vs-market axis (complements the anchor clamp,
+        # which is the LLM-vs-rubric axis).
+        is_low_class = _is_c5_or_c6_any(meta)
+        score_floor = 80 if is_low_class else GENERAL_GATE_SCORE
+        gate_label = "C5/C6 SCORE-MARKET GATE" if is_low_class else "SCORE-MARKET GATE"
+        if score < score_floor:
             continue
-        if score < 80:
-            continue
-        if dec < 9.0:
+        if dec < GENERAL_GATE_ODDS:
             continue
         # Score-market divergence — demote to race SEL stake
         was_nap = selections.get("nap_index") == i
         if was_nap:
             selections["nap_index"] = -1
             compliance_fixes.append(
-                f"C5/C6 SCORE-MARKET GATE: {horse} ({odds}, score {score}) — "
-                f"score 80+ AND price 8/1+ in C5/C6 race; NAP blocked "
+                f"{gate_label}: {horse} ({odds}, score {score}) — "
+                f"score {score_floor:.0f}+ AND price 8/1+; NAP blocked "
                 f"(score-market divergence too wide)"
             )
             logger.info(
-                f"Compliance: C5/C6 score-market gate blocked NAP for {horse} "
+                f"Compliance: {gate_label} blocked NAP for {horse} "
                 f"at {odds} (score {score})"
             )
         # Flag NB-of-day (rank 2 in selections is bot's NB-of-day convention)
         if i == 1:
             sel["nb_price_capped"] = True
             compliance_fixes.append(
-                f"C5/C6 SCORE-MARKET GATE: {horse} ({odds}, score {score}) — "
+                f"{gate_label}: {horse} ({odds}, score {score}) — "
                 f"NB-of-day demoted to race SEL stake (0.75pt) — "
                 f"score-market divergence too wide for 1.5pt slot"
             )
             logger.info(
-                f"Compliance: C5/C6 score-market gate demoted NB-of-day "
+                f"Compliance: {gate_label} demoted NB-of-day "
                 f"{horse} to race SEL stake"
             )
 
