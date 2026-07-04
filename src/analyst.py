@@ -749,6 +749,59 @@ def _resolve_race_meta(sel: dict, race_meta_lookup: dict) -> dict:
     return {}
 
 
+def _rebuild_double(selections: dict) -> None:
+    """Rebuild the NAP+NB double from the FINALISED selections, in-place.
+
+    The LLM emits its double (leg1/leg2 horse names) BEFORE the compliance
+    gate runs. Any market-swap / sub-evens block / price-cap demotion above
+    can change the horse in a selection leg, leaving the LLM's double still
+    pointing at a horse that is no longer the selection. Rebuild the double
+    from the post-gate selection list so the single and the double always
+    agree. Mirrors the fallback path's deterministic construction.
+
+    Validated 4 Jul 2026 (Sandown): the gate market-swapped Shagraan→Rumstar
+    in the 13:50 but the printed double still read "Spoken Truth × Shagraan".
+    Rumstar WON at 100/30; the stale double carried the swapped-out Shagraan.
+
+    A double is only ever rendered when there is a NAP (the renderer gates on
+    nap_index >= 0), so with no NAP we clear it to stop anything stale showing.
+    """
+    sels = selections.get("selections", []) or []
+    nap_idx = selections.get("nap_index", -1)
+    if nap_idx < 0 or nap_idx >= len(sels):
+        selections["double"] = {}
+        return
+
+    nap = sels[nap_idx]
+    # Leg 2 = the next selection that is neither the NAP nor odds-on
+    # (no value building a double off an odds-on leg — matches fallback).
+    leg2 = None
+    for i, s in enumerate(sels):
+        if i == nap_idx:
+            continue
+        if _is_odds_on_str(s.get("odds_guide", "")):
+            continue
+        leg2 = s
+        break
+    if leg2 is None:
+        selections["double"] = {}
+        return
+
+    # _parse_odds_to_decimal returns the FRACTIONAL multiplier (4/1 -> 4.0,
+    # evens -> 1.0), so true decimal odds = fractional + 1. A double's net
+    # fractional return = (dec1+1)*(dec2+1) - 1.
+    dec1 = _parse_odds_to_decimal(nap.get("odds_guide", ""))
+    dec2 = _parse_odds_to_decimal(leg2.get("odds_guide", ""))
+    approx = f"{(dec1 + 1) * (dec2 + 1) - 1:.1f}/1" if dec1 > 0 and dec2 > 0 else "?"
+
+    selections["double"] = {
+        "leg1": f"{nap['horse']} ({nap.get('race_time', '')} {nap.get('course', '')})".strip(),
+        "leg2": f"{leg2['horse']} ({leg2.get('race_time', '')} {leg2.get('course', '')})".strip(),
+        "reasoning": "NAP + NB (rebuilt post-compliance)",
+        "combined_odds_approx": approx,
+    }
+
+
 def _enforce_compliance(selections: dict, scored_lookup: dict,
                         race_meta_lookup: dict = None) -> dict:
     """
@@ -1296,6 +1349,26 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                     f"Compliance: NAP {nap_horse} not API-validated "
                     f"(API tip: {api_tip})"
                 )
+
+    # CHECK 15: REBUILD DOUBLE from finalised selections (added 4 Jul 2026).
+    # Runs LAST, after every swap / cap / gate above has finalised the
+    # selection horses and nap_index. The LLM emits its double BEFORE this
+    # gate, so a market-swap / sub-evens block / price-cap can change a leg's
+    # horse and leave the printed double pointing at a horse that is no longer
+    # the selection. Validated 4 Jul 2026 Sandown: gate swapped Shagraan→
+    # Rumstar in the 13:50 but the double still read "Spoken Truth × Shagraan"
+    # — Rumstar WON at 100/30, the double carried the swapped-out horse.
+    _old_double = dict(selections.get("double") or {})
+    _rebuild_double(selections)
+    _new_double = selections.get("double") or {}
+    if (_new_double.get("leg1") != _old_double.get("leg1") or
+            _new_double.get("leg2") != _old_double.get("leg2")):
+        compliance_fixes.append(
+            f"DOUBLE REBUILT: was [{_old_double.get('leg1', '—')} + "
+            f"{_old_double.get('leg2', '—')}], now [{_new_double.get('leg1', '—')} + "
+            f"{_new_double.get('leg2', '—')}] — realigned to post-gate selections"
+        )
+        logger.info("Compliance: double rebuilt from finalised selections")
 
     # Log all fixes
     if compliance_fixes:
