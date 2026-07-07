@@ -100,7 +100,11 @@ async def run_daily_pipeline(focus_courses: list[str] = None, n_races: int = Non
         all_meetings = scraper.fetch_all_uk_irish_races(today, focus_courses=focus_courses)
 
         if not all_meetings:
-            await send_message("📭 No UK/Irish meetings found today.")
+            await send_message(
+                "📭 No meetings loaded. Either there's no UK/Irish racing "
+                "today, or the Racing API was slow to respond — if you know "
+                "there's a card on, just run /run again."
+            )
             return
 
         course_names = [m.course for m in all_meetings]

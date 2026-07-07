@@ -197,7 +197,10 @@ class Scraper:
     def __init__(self):
         self.client = httpx.Client(
             auth=(RACING_API_USERNAME, RACING_API_PASSWORD),
-            timeout=30.0,
+            # /racecards/pro is a large (~2MB) payload and occasionally slow.
+            # Generous read timeout + retry in _api_get so one slow response
+            # can't silently wipe a full day of selections (7 Jul 2026 bug).
+            timeout=httpx.Timeout(90.0, connect=15.0),
         )
         self.base_url = "https://api.theracingapi.com/v1"
 
@@ -563,24 +566,44 @@ class Scraper:
 
     # --- API helpers ---
 
-    def _api_get(self, endpoint: str) -> Optional[dict]:
-        """Make an authenticated GET request to the Racing API."""
+    def _api_get(self, endpoint: str, max_attempts: int = 3) -> Optional[dict]:
+        """Make an authenticated GET request to the Racing API.
+
+        Retries on read/connection timeouts as well as HTTP 429. The
+        /racecards/pro payload is large and occasionally slow; a single
+        read timeout must NOT silently return None and get reported as an
+        empty card. That was the 7 Jul 2026 "No UK/Irish meetings found
+        today" bug — a full card was on, the request just timed out once.
+        """
         url = f"{self.base_url}{endpoint}"
-        try:
-            resp = self.client.get(url)
-            if resp.status_code == 200:
-                return resp.json()
-            elif resp.status_code == 429:
-                logger.warning("Racing API rate limited, waiting 5s...")
-                time_mod.sleep(5)
+        for attempt in range(1, max_attempts + 1):
+            try:
                 resp = self.client.get(url)
                 if resp.status_code == 200:
                     return resp.json()
-            logger.warning(f"Racing API {endpoint}: {resp.status_code}")
-            return None
-        except Exception as e:
-            logger.error(f"Racing API error: {e}")
-            return None
+                elif resp.status_code == 429:
+                    logger.warning("Racing API rate limited, waiting 5s...")
+                    time_mod.sleep(5)
+                    continue  # retry within the attempt budget
+                logger.warning(f"Racing API {endpoint}: {resp.status_code}")
+                return None
+            except (httpx.TimeoutException, httpx.TransportError) as e:
+                if attempt < max_attempts:
+                    wait = 3 * attempt
+                    logger.warning(
+                        f"Racing API timeout/transport error ({e}); "
+                        f"retry {attempt}/{max_attempts - 1} in {wait}s"
+                    )
+                    time_mod.sleep(wait)
+                    continue
+                logger.error(
+                    f"Racing API error after {max_attempts} attempts: {e}"
+                )
+                return None
+            except Exception as e:
+                logger.error(f"Racing API error: {e}")
+                return None
+        return None
 
     def _get_day_param(self, target_date: date) -> str:
         """Return the /racecards/pro query string for a target date.
