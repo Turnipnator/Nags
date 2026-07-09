@@ -54,7 +54,7 @@ GENERAL_GATE_ODDS = float(os.getenv("GENERAL_GATE_ODDS", "9.0"))
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 SCRAPE_TIME = os.getenv("SCRAPE_TIME", "07:00")
 ANALYSIS_TIME = os.getenv("ANALYSIS_TIME", "12:00")
-RESULTS_TIME = os.getenv("RESULTS_TIME", "18:00")
+RESULTS_TIME = os.getenv("RESULTS_TIME", "21:15")
 
 # Auto-schedule: set to "true" to enable daily auto-runs at ANALYSIS_TIME/RESULTS_TIME.
 # Default OFF — use /run via Telegram for on-demand analysis.

@@ -397,19 +397,24 @@ def schedule_jobs():
       Defaults ON so the results table stays populated for backtesting
       and live P&L tracking, regardless of whether analysis is automated.
     """
+    # Fire jobs against UK wall-clock, not the container clock (which is
+    # UTC). Passing tz keeps RESULTS_TIME/ANALYSIS_TIME meaning UK time
+    # year-round, surviving the BST->GMT switch. TIMEZONE = Europe/London.
+    tz = TIMEZONE or None
+
     if AUTO_SCHEDULE:
-        schedule.every().day.at(ANALYSIS_TIME).do(
+        schedule.every().day.at(ANALYSIS_TIME, tz).do(
             lambda: asyncio.get_event_loop().create_task(run_daily_pipeline())
         )
-        logger.info(f"Scheduled: analysis at {ANALYSIS_TIME}")
+        logger.info(f"Scheduled: analysis at {ANALYSIS_TIME} {tz or '(container clock)'}")
     else:
         logger.info("Auto-schedule DISABLED. Use /run via Telegram for on-demand analysis.")
 
     if AUTO_RESULTS:
-        schedule.every().day.at(RESULTS_TIME).do(
+        schedule.every().day.at(RESULTS_TIME, tz).do(
             lambda: asyncio.get_event_loop().create_task(run_results_check())
         )
-        logger.info(f"Scheduled: results at {RESULTS_TIME}")
+        logger.info(f"Scheduled: results at {RESULTS_TIME} {tz or '(container clock)'}")
     else:
         logger.info("Auto-results DISABLED.")
 

@@ -13,6 +13,10 @@ python-telegram-bot>=20.7
 
 # Scheduling
 schedule>=1.2.0
+# schedule .at(time, tz) requires pytz for timezone-aware firing.
+# Without it the job fires on the container's UTC clock, so a UK
+# clock time drifts by the BST/GMT offset (19:00 vs 18:00 UTC).
+pytz>=2024.1
 
 # Logging
 python-json-logger>=2.0.0
