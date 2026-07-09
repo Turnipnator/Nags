@@ -1361,12 +1361,32 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
     _old_double = dict(selections.get("double") or {})
     _rebuild_double(selections)
     _new_double = selections.get("double") or {}
-    if (_new_double.get("leg1") != _old_double.get("leg1") or
-            _new_double.get("leg2") != _old_double.get("leg2")):
+    _had_old = bool(_old_double.get("leg1"))
+    _has_new = bool(_new_double.get("leg1"))
+
+    # Note: no square brackets. Telegram renders "[text](...)" as a link, and
+    # even an unpaired "[" swallows characters — that is why the 9 Jul card
+    # printed "now — + —]" with the opening bracket eaten.
+    if _had_old and not _has_new:
+        # Not a rebuild: with no NAP there is no double at all (the renderer
+        # gates on nap_index >= 0). Saying "REBUILT ... now — + —" implied a
+        # double still existed.
         compliance_fixes.append(
-            f"DOUBLE REBUILT: was [{_old_double.get('leg1', '—')} + "
-            f"{_old_double.get('leg2', '—')}], now [{_new_double.get('leg1', '—')} + "
-            f"{_new_double.get('leg2', '—')}] — realigned to post-gate selections"
+            f"DOUBLE DROPPED: no NAP today, so no double "
+            f"(was {_old_double.get('leg1')} x {_old_double.get('leg2')})"
+        )
+        logger.info("Compliance: double dropped (no NAP)")
+    elif _has_new and (
+        _new_double.get("leg1") != _old_double.get("leg1")
+        or _new_double.get("leg2") != _old_double.get("leg2")
+    ):
+        _was = (
+            f" (was {_old_double.get('leg1')} x {_old_double.get('leg2')})"
+            if _had_old else ""
+        )
+        compliance_fixes.append(
+            f"DOUBLE REBUILT: {_new_double.get('leg1')} x "
+            f"{_new_double.get('leg2')} — realigned to post-gate selections{_was}"
         )
         logger.info("Compliance: double rebuilt from finalised selections")
 

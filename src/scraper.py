@@ -640,13 +640,63 @@ class Scraper:
             api_verdict=(data.get("verdict") or "").strip() or None,
         )
 
+        parsed: list = []
         for runner_data in data.get("runners", []):
             runner = self._parse_runner(runner_data)
             if runner:
-                race.runners.append(runner)
+                parsed.append((runner, self._has_bookmaker_price(runner_data)))
+
+        # NON-RUNNER FILTER (9 Jul 2026).
+        # The API keeps withdrawn horses in `runners` — and they still carry a
+        # jockey, so the old "no jockey" heuristic never fired for a single one
+        # (Persian Spring/Jamie Spencer, Shafdar/William Buick). What the API
+        # DOES strip is every bookmaker price, and it drops them from
+        # `field_size`. So a withdrawn horse was being scored, counted toward
+        # field size, and left sitting in the field-relative class comparison
+        # (a non-runner rated RPR 94 quietly distorted every rival's score).
+        #
+        # Treat a priceless runner as withdrawn ONLY when at least one rival IS
+        # priced — otherwise an early card whose market has not opened yet would
+        # lose its entire field.
+        if any(priced for _, priced in parsed):
+            race.runners = [r for r, priced in parsed if priced]
+            withdrawn = [r.name for r, priced in parsed if not priced]
+        else:
+            race.runners = [r for r, _ in parsed]
+            withdrawn = []
 
         race.num_runners = len(race.runners)
+
+        if withdrawn:
+            logger.info(
+                f"{race.name}: dropped {len(withdrawn)} non-runner(s): "
+                f"{', '.join(withdrawn)}"
+            )
+
+        # field_size is the API's own count excluding non-runners. If it still
+        # disagrees, our filter missed something — say so rather than scoring a
+        # field we have miscounted.
+        try:
+            field_size = int(data.get("field_size"))
+        except (TypeError, ValueError):
+            field_size = None
+        if field_size is not None and field_size != race.num_runners:
+            logger.warning(
+                f"{race.name}: field_size={field_size} but {race.num_runners} "
+                f"runners kept after non-runner filter — check NR detection"
+            )
+
         return race
+
+    @staticmethod
+    def _has_bookmaker_price(runner_data: dict) -> bool:
+        """True if any bookmaker quotes a price. Non-runners quote none."""
+        for o in runner_data.get("odds", []) or []:
+            frac = (o.get("fractional") or "").strip()
+            dec = (o.get("decimal") or "").strip()
+            if (frac and frac != "-") or (dec and dec != "-"):
+                return True
+        return False
 
     def _parse_runner(self, data: dict) -> Optional[Runner]:
         """Parse a runner from API response into our Runner dataclass."""
