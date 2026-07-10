@@ -427,6 +427,14 @@ class Scraper:
             return []
         return data.get("results", [])
 
+    @staticmethod
+    def _to_float(v) -> Optional[float]:
+        """Parse the API's loose numerics ('0', '.25', '38.75', '-', '')."""
+        try:
+            return float(str(v).strip())
+        except (TypeError, ValueError):
+            return None
+
     def fetch_recent_race_classes(self, horse_id: str, limit: int = 3) -> list[dict]:
         """
         Fetch the most recent `limit` race results for a horse and return
@@ -439,6 +447,7 @@ class Scraper:
         fragile Spotlight text matching.
         """
         from src.scorer import CLASS_LEVELS_NH, CLASS_LEVELS_FLAT
+        _to_float = self._to_float
         data = self._api_get(f"/horses/{horse_id}/results?limit={limit}")
         if not data:
             return []
@@ -463,9 +472,11 @@ class Scraper:
                         break
             # Find this horse's position in the runners list
             position = None
+            r_ovr_btn = None
             for rn in r.get("runners", []):
                 if rn.get("horse_id") == horse_id:
                     position = rn.get("position")
+                    r_ovr_btn = rn.get("ovr_btn")
                     break
             course_raw = r.get("course") or ""
             # Quality-filter markers for the class-drop kicker:
@@ -476,6 +487,16 @@ class Scraper:
                                "(ARG)", "(SAF)", "(BAH)")
             is_foreign = any(m in course_raw for m in foreign_markers)
             is_aw = "(AW)" in course_raw
+            # Beaten margin, normalised by trip. Rule 18b uses this to
+            # refuse to excuse a rout: `ovr_btn` is lengths behind the
+            # WINNER (`btn` is lengths behind the horse in front, which is
+            # useless here). Non-finishers carry "-" and are already
+            # dropped downstream by the int(position) parse.
+            ovr_btn = _to_float(r_ovr_btn)
+            dist_f = _to_float((r.get("dist_f") or "").rstrip("f"))
+            btn_per_f = None
+            if ovr_btn is not None and dist_f:
+                btn_per_f = ovr_btn / dist_f
             out.append({
                 "date": r.get("date"),
                 "class_str": class_str or pattern,
@@ -485,6 +506,9 @@ class Scraper:
                 "course": course_raw,
                 "is_foreign": is_foreign,
                 "is_aw": is_aw,
+                "ovr_btn": ovr_btn,
+                "dist_f": dist_f,
+                "btn_per_f": btn_per_f,
             })
         return out
 

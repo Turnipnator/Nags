@@ -111,6 +111,25 @@ def _is_c5_or_c6(race) -> bool:
 # Behaviour returns to current state in <1 minute when toggled off.
 RULE_18B_ENABLED = True
 
+# Rule 18b margin guard (10 Jul 2026). Rule 18b excuses a poor finish in
+# tougher company on the premise that the horse was COMPETITIVE at a level
+# above today's. Position + class tier alone cannot tell "respectable 7th"
+# from "tailed off last", so a rout was being excused identically to a
+# near-miss. A candidate run is only excusable when the horse finished
+# within this many lengths-per-furlong of the winner.
+#
+# Calibrated on 208 real result lines (10 Jul 2026 card):
+#   Flat n=106: median 0.57, p90 1.84, p95 2.20
+#   NH   n=102: median 0.83, p90 2.53, p95 3.04
+#   Of 47 PLACED (1-2-3) NH runs, ZERO exceeded 2.00 L/f.
+# Anchors:
+#   PASS Classic Encounter, Spring Mile C2, 7th/22, 9.75L over 8f = 1.22 L/f
+#        (the founding case for Rule 18b; he then WON at 11/8)
+#   FAIL Flora Of Bermuda, Jubilee Gp1, 18th/18, 38.75L over 6f = 6.46 L/f
+# Missing margin or trip => do NOT excuse (fail closed; matches the
+# no-guessing convention in _blocked_favourite_dominates).
+RULE_18B_MAX_BTN_PER_FURLONG = 2.0
+
 
 def _race_class_tier(race) -> Optional[int]:
     """Return the numeric class tier of `race` using CLASS_LEVELS tables.
@@ -459,7 +478,24 @@ class Scorer:
             if hist_tier == today_tier:
                 same_class_poor_count += 1
             elif hist_tier > today_tier:
-                # Higher class than today — Rule 18b candidate
+                # Higher class than today — Rule 18b candidate, but only if
+                # the horse was COMPETITIVE there. A rout carries no
+                # information about a level the horse never reached.
+                btn_per_f = h.get("btn_per_f")
+                if btn_per_f is None:
+                    logger.debug(
+                        f"Rule 18b: {runner.name} — no beaten margin for "
+                        f"{h.get('race_name')}, not excusing"
+                    )
+                    continue
+                if btn_per_f > RULE_18B_MAX_BTN_PER_FURLONG:
+                    logger.info(
+                        f"Rule 18b MARGIN GUARD: {runner.name} — NOT excusing "
+                        f"pos {pos} in {h.get('race_name')} "
+                        f"(beaten {h.get('ovr_btn')}L over {h.get('dist_f')}f "
+                        f"= {btn_per_f:.2f} L/f > {RULE_18B_MAX_BTN_PER_FURLONG})"
+                    )
+                    continue
                 form_idx = form_len - 1 - past_idx
                 if 0 <= form_idx < form_len:
                     candidates.append((form_idx, pos, hist_tier))
