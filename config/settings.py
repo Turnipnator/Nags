@@ -50,6 +50,38 @@ JUDGEMENT_DOWN_BAND = float(os.getenv("JUDGEMENT_DOWN_BAND", "25"))
 GENERAL_GATE_SCORE = float(os.getenv("GENERAL_GATE_SCORE", "82"))
 GENERAL_GATE_ODDS = float(os.getenv("GENERAL_GATE_ODDS", "9.0"))
 
+# ── SELECTION FILTERS F1 / F2 — SHADOW MODE (added 14 Jul 2026) ──────────────
+# Derived from 652 real logged picks, 73 race days, 26 Mar - 9 Jul 2026, joined
+# to Racing API results. See TWO_FILTERS_PAPER_TRADE.md + CLAUDE.md header note.
+#
+# ⚠ SHADOW = OBSERVE ONLY. While FILTER_SHADOW_MODE is True the gate LOGS what
+# F1/F2 would do and changes NOTHING. nags_back stakes real money; a retro-fit
+# does not get to touch live selections until it has been watched forward for
+# 4 weeks (review 11 Aug 2026). Set FILTER_SHADOW_MODE=false to ENFORCE.
+#
+# F2 (LONGSHOT) — drop any selection at a morning price of 11/1 or bigger.
+#   Evidence: 1 winner from 65 bets, ROI -76.9% at BOG. The existing price caps
+#   only cover the NAP (10/1) and NB-of-day (14/1); race SELs and race NBs have
+#   NO price cap at all, which is exactly where those 65 bets sit.
+#   NOTE ON UNITS: _parse_odds_to_decimal returns the FRACTIONAL multiplier
+#   (11/1 -> 11.0), NOT decimal odds. The threshold is 11.0, not 12.0.
+#
+# F1 (HIGH SCORE) — demote adjusted_score >= 85 to a flat race-SEL stake.
+#   Evidence: n=55, win 16.4%, avg SP 5.56, ROI -31.3% at BOG. Persists across
+#   every ruleset era (-57.6% in Jun-Jul alone) so it is NOT the Opus 4.7
+#   inflation artefact. DEMOTE, never DROP: the band contains 9 winners incl.
+#   Saddadd (91, 4/1) and Grey Dawning (86, 3/1) — the very horses CLAUDE.md
+#   cites as proof premium short-priced NAPs work. F1 is the WEAKER of the two
+#   and is expected to be the one that dies in paper-trade.
+#
+# The general score-vs-market gate above CANNOT see the F1 cluster: it needs
+# score >= 82 AND odds >= 9.0, and the worst F1 losers are SHORT (avg SP 5.56).
+FILTER_SHADOW_MODE = os.getenv("FILTER_SHADOW_MODE", "true").lower() == "true"
+FILTER_LONGSHOT_ENABLED = os.getenv("FILTER_LONGSHOT_ENABLED", "true").lower() == "true"
+LONGSHOT_MAX_ODDS = float(os.getenv("LONGSHOT_MAX_ODDS", "11.0"))  # fractional
+FILTER_HIGHSCORE_ENABLED = os.getenv("FILTER_HIGHSCORE_ENABLED", "true").lower() == "true"
+HIGHSCORE_DEMOTE_AT = float(os.getenv("HIGHSCORE_DEMOTE_AT", "85.0"))
+
 # Scheduling (24h format, UK timezone)
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 SCRAPE_TIME = os.getenv("SCRAPE_TIME", "07:00")

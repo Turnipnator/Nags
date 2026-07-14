@@ -21,6 +21,8 @@ from config.settings import (
     ANTHROPIC_API_KEY, JUDGEMENT_MODEL, NAP_THRESHOLD,
     JUDGEMENT_CLAMP_ENABLED, JUDGEMENT_UP_BAND, JUDGEMENT_DOWN_BAND,
     GENERAL_GATE_SCORE, GENERAL_GATE_ODDS,
+    FILTER_SHADOW_MODE, FILTER_LONGSHOT_ENABLED, LONGSHOT_MAX_ODDS,
+    FILTER_HIGHSCORE_ENABLED, HIGHSCORE_DEMOTE_AT,
 )
 from src.scraper import Runner, Race, Meeting
 from src.scorer import RunnerScore, Scorer
@@ -1389,6 +1391,70 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
             f"{_new_double.get('leg2')} — realigned to post-gate selections{_was}"
         )
         logger.info("Compliance: double rebuilt from finalised selections")
+
+    # CHECK 16: SELECTION FILTERS F1 / F2 (added 14 Jul 2026) — SHADOW BY DEFAULT.
+    # Runs LAST so it sees the final post-gate state: the roles, scores and prices
+    # that would actually be bet. Evidence: 652 real logged picks, 26 Mar-9 Jul
+    # 2026, joined to results. See TWO_FILTERS_PAPER_TRADE.md.
+    #
+    #   F2 LONGSHOT  — morning price >= 11/1 => DROP.   1 winner from 65, -76.9% BOG.
+    #   F1 HIGHSCORE — adjusted_score >= 85  => DEMOTE. n=55, -31.3% BOG.
+    #
+    # While FILTER_SHADOW_MODE is True this LOGS and mutates NOTHING — nags_back
+    # stakes real money and a retro-fit does not touch live picks until it has been
+    # watched forward. Flip FILTER_SHADOW_MODE=false to enforce.
+    shadow_notes = []
+    drop_idxs = set()
+    demote_idxs = set()
+    for i, sel in enumerate(sels):
+        horse = sel.get("horse", "")
+        odds = sel.get("odds_guide", "") or ""
+        frac = _parse_odds_to_decimal(odds)  # FRACTIONAL multiplier: 11/1 -> 11.0
+        score = sel.get("adjusted_score", 0) or 0
+        role = "NAP" if selections.get("nap_index") == i else ("NB-of-day" if i == 1 else "race SEL")
+
+        if FILTER_LONGSHOT_ENABLED and frac >= LONGSHOT_MAX_ODDS:
+            drop_idxs.add(i)
+            shadow_notes.append(
+                f"F2 LONGSHOT: {horse} ({odds}, {role}) — price >= "
+                f"{LONGSHOT_MAX_ODDS:.0f}/1 => DROP"
+            )
+        elif FILTER_HIGHSCORE_ENABLED and score >= HIGHSCORE_DEMOTE_AT:
+            # elif: a horse already dropped by F2 needs no demotion.
+            demote_idxs.add(i)
+            shadow_notes.append(
+                f"F1 HIGHSCORE: {horse} ({odds}, {role}, score {score}) — score >= "
+                f"{HIGHSCORE_DEMOTE_AT:.0f} => DEMOTE to race SEL stake"
+            )
+
+    if shadow_notes:
+        prefix = "FILTER-SHADOW" if FILTER_SHADOW_MODE else "FILTER"
+        for n in shadow_notes:
+            logger.info(f"{prefix} {n}")
+        selections["filter_shadow_log"] = [f"[{prefix}] {n}" for n in shadow_notes]
+
+    if not FILTER_SHADOW_MODE and (drop_idxs or demote_idxs):
+        for i in demote_idxs:
+            sels[i]["nb_price_capped"] = True   # staking layer reads this as 0.75pt
+            if selections.get("nap_index") == i:
+                selections["nap_index"] = -1
+            compliance_fixes.append(
+                f"F1 HIGHSCORE: {sels[i].get('horse','')} "
+                f"(score {sels[i].get('adjusted_score', 0)}) demoted to race SEL stake"
+            )
+        if drop_idxs:
+            # Rebuild the list and remap nap_index — dropping by index would
+            # otherwise silently shift every selection after the removed one.
+            old_nap = selections.get("nap_index", -1)
+            kept = [(i, s) for i, s in enumerate(sels) if i not in drop_idxs]
+            selections["selections"] = [s for _, s in kept]
+            remap = {old_i: new_i for new_i, (old_i, _) in enumerate(kept)}
+            selections["nap_index"] = remap.get(old_nap, -1)
+            for i in sorted(drop_idxs):
+                compliance_fixes.append(
+                    f"F2 LONGSHOT: {sels[i].get('horse','')} "
+                    f"({sels[i].get('odds_guide','')}) dropped — price too long"
+                )
 
     # Log all fixes
     if compliance_fixes:
