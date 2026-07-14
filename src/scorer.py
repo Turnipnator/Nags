@@ -130,6 +130,12 @@ RULE_18B_ENABLED = True
 # no-guessing convention in _blocked_favourite_dominates).
 RULE_18B_MAX_BTN_PER_FURLONG = 2.0
 
+# NH quick-turnaround penalty: require a WIN last time (14 Jul 2026).
+# CLAUDE.md factor 11 has always said the -3 applies "8-14 days AFTER A HARD
+# WIN for 8yo+"; the code checked only age and days, never the win. Set False
+# to restore the pre-14-Jul (age+days only) behaviour.
+QUICK_TURNAROUND_REQUIRE_WIN = True
+
 
 def _race_class_tier(race) -> Optional[int]:
     """Return the numeric class tier of `race` using CLASS_LEVELS tables.
@@ -1050,10 +1056,21 @@ class Scorer:
             bonus -= 5.0
             details.append(f"⚠️ QUICK TURNAROUND {runner.days_since_run}d (NH ≤7d) -5")
         elif runner.days_since_run is not None and runner.days_since_run <= 14 and is_nh:
+            # CLAUDE.md factor 11: "8-14 days AFTER A HARD WIN for 8yo+ = -3".
+            # The win condition was missing until 14 Jul 2026, so this fired on
+            # ANY 8yo+ returning inside 14 days regardless of what it did last
+            # time — the opposite of the rule's rationale ("hard-won races take
+            # MORE out of a horse than easy wins"). Caught at Perth 3:51 on
+            # 12 Jul 2026: Grand Clermont (10yo, back in 14 days off a beaten
+            # 4th in a Class 2) was docked -3 and then WON at 3/1; Wasdell
+            # Dundalk took the same -3 off a 2nd. Neither had won last time.
             age = runner.age or 0
-            if age >= 8:
+            won_last = _form_chars(runner.form)[-1:] == "1"
+            if age >= 8 and (won_last or not QUICK_TURNAROUND_REQUIRE_WIN):
                 bonus -= 3.0
-                details.append(f"⚠️ Quick turnaround {runner.days_since_run}d (8yo+ NH) -3")
+                details.append(
+                    f"⚠️ Quick turnaround {runner.days_since_run}d after win (8yo+ NH) -3"
+                )
         elif runner.days_since_run and 14 <= runner.days_since_run <= 42:
             bonus += 1.0
             details.append("Optimal return window +1")
