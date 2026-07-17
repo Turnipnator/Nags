@@ -21,8 +21,9 @@ from config.settings import (
     ANTHROPIC_API_KEY, JUDGEMENT_MODEL, NAP_THRESHOLD,
     JUDGEMENT_CLAMP_ENABLED, JUDGEMENT_UP_BAND, JUDGEMENT_DOWN_BAND,
     GENERAL_GATE_SCORE, GENERAL_GATE_ODDS,
-    FILTER_SHADOW_MODE, FILTER_LONGSHOT_ENABLED, LONGSHOT_MAX_ODDS,
-    FILTER_HIGHSCORE_ENABLED, HIGHSCORE_DEMOTE_AT,
+    FILTER_SHADOW_MODE, FILTER_LONGSHOT_ENABLED, FILTER_LONGSHOT_SHADOW,
+    LONGSHOT_MAX_ODDS, FILTER_HIGHSCORE_ENABLED, FILTER_HIGHSCORE_SHADOW,
+    HIGHSCORE_DEMOTE_AT,
 )
 from src.scraper import Runner, Race, Meeting
 from src.scorer import RunnerScore, Scorer
@@ -1392,7 +1393,7 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
         )
         logger.info("Compliance: double rebuilt from finalised selections")
 
-    # CHECK 16: SELECTION FILTERS F1 / F2 (added 14 Jul 2026) — SHADOW BY DEFAULT.
+    # CHECK 16: SELECTION FILTERS F1 / F2 (added 14 Jul 2026; F2 LIVE 17 Jul 2026).
     # Runs LAST so it sees the final post-gate state: the roles, scores and prices
     # that would actually be bet. Evidence: 652 real logged picks, 26 Mar-9 Jul
     # 2026, joined to results. See TWO_FILTERS_PAPER_TRADE.md.
@@ -1400,10 +1401,13 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
     #   F2 LONGSHOT  — morning price >= 11/1 => DROP.   1 winner from 65, -76.9% BOG.
     #   F1 HIGHSCORE — adjusted_score >= 85  => DEMOTE. n=55, -31.3% BOG.
     #
-    # While FILTER_SHADOW_MODE is True this LOGS and mutates NOTHING — nags_back
-    # stakes real money and a retro-fit does not touch live picks until it has been
-    # watched forward. Flip FILTER_SHADOW_MODE=false to enforce.
-    shadow_notes = []
+    # Shadow is PER-FILTER as of 17 Jul 2026. F2 LONGSHOT is LIVE; F1 HIGHSCORE
+    # stays observe-only to the 11 Aug review. A filter enforces only when neither
+    # the master FILTER_SHADOW_MODE nor its own shadow flag is set. Detection is
+    # independent of shadow — a shadow filter still LOGS what it would have done.
+    longshot_live = FILTER_LONGSHOT_ENABLED and not (FILTER_SHADOW_MODE or FILTER_LONGSHOT_SHADOW)
+    highscore_live = FILTER_HIGHSCORE_ENABLED and not (FILTER_SHADOW_MODE or FILTER_HIGHSCORE_SHADOW)
+    filter_notes = []   # (is_live, note)
     drop_idxs = set()
     demote_idxs = set()
     for i, sel in enumerate(sels):
@@ -1415,25 +1419,28 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
 
         if FILTER_LONGSHOT_ENABLED and frac >= LONGSHOT_MAX_ODDS:
             drop_idxs.add(i)
-            shadow_notes.append(
+            filter_notes.append((longshot_live,
                 f"F2 LONGSHOT: {horse} ({odds}, {role}) — price >= "
                 f"{LONGSHOT_MAX_ODDS:.0f}/1 => DROP"
-            )
+            ))
         elif FILTER_HIGHSCORE_ENABLED and score >= HIGHSCORE_DEMOTE_AT:
-            # elif: a horse already dropped by F2 needs no demotion.
+            # elif: a horse already flagged by F2 needs no demotion.
             demote_idxs.add(i)
-            shadow_notes.append(
+            filter_notes.append((highscore_live,
                 f"F1 HIGHSCORE: {horse} ({odds}, {role}, score {score}) — score >= "
                 f"{HIGHSCORE_DEMOTE_AT:.0f} => DEMOTE to race SEL stake"
-            )
+            ))
 
-    if shadow_notes:
-        prefix = "FILTER-SHADOW" if FILTER_SHADOW_MODE else "FILTER"
-        for n in shadow_notes:
+    if filter_notes:
+        log_lines = []
+        for is_live, n in filter_notes:
+            prefix = "FILTER" if is_live else "FILTER-SHADOW"
             logger.info(f"{prefix} {n}")
-        selections["filter_shadow_log"] = [f"[{prefix}] {n}" for n in shadow_notes]
+            log_lines.append(f"[{prefix}] {n}")
+        selections["filter_shadow_log"] = log_lines
 
-    if not FILTER_SHADOW_MODE and (drop_idxs or demote_idxs):
+    # Enforce F1 demotes only if F1 is live (shadow F1 leaves demote_idxs unused).
+    if highscore_live:
         for i in demote_idxs:
             sels[i]["nb_price_capped"] = True   # staking layer reads this as 0.75pt
             if selections.get("nap_index") == i:
@@ -1442,19 +1449,30 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                 f"F1 HIGHSCORE: {sels[i].get('horse','')} "
                 f"(score {sels[i].get('adjusted_score', 0)}) demoted to race SEL stake"
             )
-        if drop_idxs:
-            # Rebuild the list and remap nap_index — dropping by index would
-            # otherwise silently shift every selection after the removed one.
-            old_nap = selections.get("nap_index", -1)
-            kept = [(i, s) for i, s in enumerate(sels) if i not in drop_idxs]
-            selections["selections"] = [s for _, s in kept]
-            remap = {old_i: new_i for new_i, (old_i, _) in enumerate(kept)}
-            selections["nap_index"] = remap.get(old_nap, -1)
-            for i in sorted(drop_idxs):
-                compliance_fixes.append(
-                    f"F2 LONGSHOT: {sels[i].get('horse','')} "
-                    f"({sels[i].get('odds_guide','')}) dropped — price too long"
-                )
+    # Enforce F2 drops only if F2 is live.
+    if longshot_live and drop_idxs:
+        # Rebuild the list and remap nap_index — dropping by index would
+        # otherwise silently shift every selection after the removed one.
+        old_nap = selections.get("nap_index", -1)
+        kept = [(i, s) for i, s in enumerate(sels) if i not in drop_idxs]
+        selections["selections"] = [s for _, s in kept]
+        remap = {old_i: new_i for new_i, (old_i, _) in enumerate(kept)}
+        selections["nap_index"] = remap.get(old_nap, -1)
+        for i in sorted(drop_idxs):
+            compliance_fixes.append(
+                f"F2 LONGSHOT: {sels[i].get('horse','')} "
+                f"({sels[i].get('odds_guide','')}) dropped — price too long"
+            )
+
+    # A live drop/demote can remove a double leg or clear the NAP set by CHECK 15
+    # above — realign the double so the single and double never disagree.
+    if (highscore_live and demote_idxs) or (longshot_live and drop_idxs):
+        _pre = dict(selections.get("double") or {})
+        _rebuild_double(selections)
+        _post = selections.get("double") or {}
+        if (_pre.get("leg1"), _pre.get("leg2")) != (_post.get("leg1"), _post.get("leg2")):
+            logger.info("Compliance: double realigned after F1/F2 enforcement")
+            compliance_fixes.append("DOUBLE REALIGNED after selection filter (F1/F2)")
 
     # Log all fixes
     if compliance_fixes:

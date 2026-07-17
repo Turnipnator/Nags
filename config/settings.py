@@ -54,10 +54,14 @@ GENERAL_GATE_ODDS = float(os.getenv("GENERAL_GATE_ODDS", "9.0"))
 # Derived from 652 real logged picks, 73 race days, 26 Mar - 9 Jul 2026, joined
 # to Racing API results. See TWO_FILTERS_PAPER_TRADE.md + CLAUDE.md header note.
 #
-# ⚠ SHADOW = OBSERVE ONLY. While FILTER_SHADOW_MODE is True the gate LOGS what
-# F1/F2 would do and changes NOTHING. nags_back stakes real money; a retro-fit
-# does not get to touch live selections until it has been watched forward for
-# 4 weeks (review 11 Aug 2026). Set FILTER_SHADOW_MODE=false to ENFORCE.
+# ⚠ STATUS 17 Jul 2026: F2 is now LIVE (enforces DROP); F1 stays SHADOW to the
+# 11 Aug 2026 review. Shadow is per-filter now. FILTER_SHADOW_MODE is a MASTER
+# kill-switch: set it true to force BOTH filters back to observe-only in one move
+# (instant full revert). Per-filter: FILTER_LONGSHOT_SHADOW (F2), FILTER_HIGHSCORE_
+# SHADOW (F1). A filter enforces only when neither the master nor its own shadow
+# flag is set. F2 went live off 670 real logged picks re-validated at BOG (see
+# project_market_divergence_finding): the market-divergence damage is F2's longshot
+# cluster + the sub-70 tail; F2 owns the longshots, the 70+ floor owns the rest.
 #
 # F2 (LONGSHOT) — drop any selection at a morning price of 11/1 or bigger.
 #   Evidence: 1 winner from 65 bets, ROI -76.9% at BOG. The existing price caps
@@ -76,10 +80,20 @@ GENERAL_GATE_ODDS = float(os.getenv("GENERAL_GATE_ODDS", "9.0"))
 #
 # The general score-vs-market gate above CANNOT see the F1 cluster: it needs
 # score >= 82 AND odds >= 9.0, and the worst F1 losers are SHORT (avg SP 5.56).
-FILTER_SHADOW_MODE = os.getenv("FILTER_SHADOW_MODE", "true").lower() == "true"
+# Master kill-switch. True => ALL filters revert to shadow (observe-only). Default
+# False so the per-filter shadow flags below govern. Flip true for instant revert.
+FILTER_SHADOW_MODE = os.getenv("FILTER_SHADOW_MODE", "false").lower() == "true"
+
+# F2 LONGSHOT — LIVE (enforces DROP) as of 17 Jul 2026. To revert F2 alone without
+# touching F1, set FILTER_LONGSHOT_SHADOW=true (or the master FILTER_SHADOW_MODE).
 FILTER_LONGSHOT_ENABLED = os.getenv("FILTER_LONGSHOT_ENABLED", "true").lower() == "true"
+FILTER_LONGSHOT_SHADOW = os.getenv("FILTER_LONGSHOT_SHADOW", "false").lower() == "true"
 LONGSHOT_MAX_ODDS = float(os.getenv("LONGSHOT_MAX_ODDS", "11.0"))  # fractional
+
+# F1 HIGHSCORE — STILL SHADOW (log only) to the 11 Aug 2026 review. The weaker
+# filter, expected to die. Set FILTER_HIGHSCORE_SHADOW=false only after that review.
 FILTER_HIGHSCORE_ENABLED = os.getenv("FILTER_HIGHSCORE_ENABLED", "true").lower() == "true"
+FILTER_HIGHSCORE_SHADOW = os.getenv("FILTER_HIGHSCORE_SHADOW", "true").lower() == "true"
 HIGHSCORE_DEMOTE_AT = float(os.getenv("HIGHSCORE_DEMOTE_AT", "85.0"))
 
 # Scheduling (24h format, UK timezone)
