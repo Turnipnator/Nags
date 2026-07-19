@@ -23,7 +23,8 @@ from config.settings import (
     GENERAL_GATE_SCORE, GENERAL_GATE_ODDS,
     FILTER_SHADOW_MODE, FILTER_LONGSHOT_ENABLED, FILTER_LONGSHOT_SHADOW,
     LONGSHOT_MAX_ODDS, FILTER_HIGHSCORE_ENABLED, FILTER_HIGHSCORE_SHADOW,
-    HIGHSCORE_DEMOTE_AT,
+    HIGHSCORE_DEMOTE_AT, FILTER_SHORTNAP_ENABLED, FILTER_SHORTNAP_SHADOW,
+    SHORTNAP_MIN_ODDS,
 )
 from src.scraper import Runner, Race, Meeting
 from src.scorer import RunnerScore, Scorer
@@ -398,6 +399,23 @@ def _is_aw_c5_or_c6_handicap(race_name: str, meta: dict) -> bool:
     if "handicap" not in rn and "handicap" not in rt:
         return False
     return _is_aw_course(meta.get("course", ""), meta.get("surface", ""))
+
+
+def _is_premium_race(meta: dict) -> bool:
+    """True for Group / Grade / Listed / Class 1-3 races. Used by F3 (19 Jul 2026).
+
+    Resolves `pattern` BEFORE `race_class`, because the API stores pattern races
+    as race_class="Class 1" with the real level in `pattern`. Reading race_class
+    alone is exactly the asymmetry that caused the 5 Jun 2026 class-drop kicker
+    bug, so this mirrors the enrichment side deliberately.
+    """
+    if not meta:
+        return False
+    pattern = (meta.get("pattern") or "").lower()
+    if any(k in pattern for k in ("group", "grade", "listed")):
+        return True
+    rc = (meta.get("race_class") or "").lower()
+    return any(k in rc for k in ("class 1", "class 2", "class 3"))
 
 
 def _is_c5_or_c6_any(meta: dict) -> bool:
@@ -1501,15 +1519,18 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
     # independent of shadow — a shadow filter still LOGS what it would have done.
     longshot_live = FILTER_LONGSHOT_ENABLED and not (FILTER_SHADOW_MODE or FILTER_LONGSHOT_SHADOW)
     highscore_live = FILTER_HIGHSCORE_ENABLED and not (FILTER_SHADOW_MODE or FILTER_HIGHSCORE_SHADOW)
+    shortnap_live = FILTER_SHORTNAP_ENABLED and not (FILTER_SHADOW_MODE or FILTER_SHORTNAP_SHADOW)
     filter_notes = []   # (is_live, note)
     drop_idxs = set()
     demote_idxs = set()
+    shortnap_idxs = set()
     for i, sel in enumerate(sels):
         horse = sel.get("horse", "")
         odds = sel.get("odds_guide", "") or ""
         frac = _parse_odds_to_decimal(odds)  # FRACTIONAL multiplier: 11/1 -> 11.0
         score = sel.get("adjusted_score", 0) or 0
-        role = "NAP" if selections.get("nap_index") == i else ("NB-of-day" if i == 1 else "race SEL")
+        is_nap = selections.get("nap_index") == i
+        role = "NAP" if is_nap else ("NB-of-day" if i == 1 else "race SEL")
 
         if FILTER_LONGSHOT_ENABLED and frac >= LONGSHOT_MAX_ODDS:
             drop_idxs.add(i)
@@ -1524,6 +1545,25 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                 f"F1 HIGHSCORE: {horse} ({odds}, {role}, score {score}) — score >= "
                 f"{HIGHSCORE_DEMOTE_AT:.0f} => DEMOTE to race SEL stake"
             ))
+
+        # F3 SHORT-PREMIUM-NAP — applies ONLY to the NAP slot, and only in
+        # premium races. Independent of F1/F2 above (not an elif) because it
+        # keys on a different axis: F2 is price-high, F1 is score-high, F3 is
+        # price-LOW-and-premium. A horse F2 already drops is skipped, since a
+        # dropped selection has nothing left to demote.
+        if (FILTER_SHORTNAP_ENABLED and is_nap and i not in drop_idxs
+                and 0 < frac < SHORTNAP_MIN_ODDS):
+            meta = _resolve_race_meta(sel, race_meta_lookup)
+            # Fail OPEN: if the race can't be resolved we cannot know it is
+            # premium, and F3 must never fire on a guess.
+            if meta and _is_premium_race(meta):
+                lvl = (meta.get("pattern") or meta.get("race_class") or "?").strip()
+                shortnap_idxs.add(i)
+                filter_notes.append((shortnap_live,
+                    f"F3 SHORT-PREMIUM-NAP: {horse} ({odds}, NAP, {lvl}) — NAP "
+                    f"under {SHORTNAP_MIN_ODDS:.0f}/1 in a premium race "
+                    f"(cell ROI −40.2%, n=29) => DEMOTE to race SEL stake"
+                ))
 
     if filter_notes:
         log_lines = []
@@ -1542,6 +1582,17 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
             compliance_fixes.append(
                 f"F1 HIGHSCORE: {sels[i].get('horse','')} "
                 f"(score {sels[i].get('adjusted_score', 0)}) demoted to race SEL stake"
+            )
+    # Enforce F3 demotes only if F3 is live (shadow F3 leaves shortnap_idxs unused).
+    if shortnap_live:
+        for i in shortnap_idxs:
+            sels[i]["nb_price_capped"] = True   # staking layer reads this as 0.75pt
+            if selections.get("nap_index") == i:
+                selections["nap_index"] = -1    # no NAP today — flat stakes
+            compliance_fixes.append(
+                f"F3 SHORT-PREMIUM-NAP: {sels[i].get('horse','')} "
+                f"({sels[i].get('odds_guide','')}) demoted to race SEL stake — "
+                f"NAP under {SHORTNAP_MIN_ODDS:.0f}/1 in a premium race"
             )
     # Enforce F2 drops only if F2 is live.
     if longshot_live and drop_idxs:

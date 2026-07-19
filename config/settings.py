@@ -96,6 +96,25 @@ FILTER_HIGHSCORE_ENABLED = os.getenv("FILTER_HIGHSCORE_ENABLED", "true").lower()
 FILTER_HIGHSCORE_SHADOW = os.getenv("FILTER_HIGHSCORE_SHADOW", "true").lower() == "true"
 HIGHSCORE_DEMOTE_AT = float(os.getenv("HIGHSCORE_DEMOTE_AT", "85.0"))
 
+# F3 SHORT-PREMIUM-NAP — SHADOW (log only) from 19 Jul 2026. Review 16 Aug 2026.
+# Evidence: 639 logged picks settled at BOG (scripts/backfill_results.py machinery).
+# A NAP priced UNDER 4/1 in a PREMIUM race (Group/Grade/Listed/Class 1-3) returns
+# -40.2% ROI over n=29 -- the worst cell in the system. It is NOT outlier-driven
+# (-52.4% with its best bet removed) and it is negative in BOTH halves of an
+# out-of-sample date split (-47.4% / -33.7%). Sub-4/1 NAPs win 19.5% where the
+# price needs 28.2%: a price problem, not a picking problem.
+# CONTROL that makes this specific to the NAP slot: non-NAP bets under 4/1 are
+# only -1.2% (n=189). Short prices are fine -- doubling the stake on them is not.
+# NOTE this REFUTES the documented carve-out in CLAUDE.md's AW C5/6
+# no-NAP-on-favourite rule, which deliberately exempts premium class on the
+# grounds that short premium NAPs work (Brighterdaysahead/Madara/Saddadd).
+# In the data that exemption is exactly backwards. Premium earns its keep at
+# 4/1+ (+75%, n=17 -- suggestive only, NOT acted on).
+# Action is DEMOTE to race-SEL stake, never DROP: these still win ~17%.
+FILTER_SHORTNAP_ENABLED = os.getenv("FILTER_SHORTNAP_ENABLED", "true").lower() == "true"
+FILTER_SHORTNAP_SHADOW = os.getenv("FILTER_SHORTNAP_SHADOW", "true").lower() == "true"
+SHORTNAP_MIN_ODDS = float(os.getenv("SHORTNAP_MIN_ODDS", "4.0"))  # fractional
+
 # Scheduling (24h format, UK timezone)
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 SCRAPE_TIME = os.getenv("SCRAPE_TIME", "07:00")
