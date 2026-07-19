@@ -4,6 +4,7 @@ SQLite database for selections, results, and P&L tracking.
 
 import json
 import logging
+import re
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
@@ -154,6 +155,163 @@ def _save_selection(meeting_id: int, sel: dict, sel_type: str, stake: float):
             sel.get("adjusted_score") or sel.get("score", 0),
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# SETTLEMENT (added 19 Jul 2026)
+# ---------------------------------------------------------------------------
+# WHY THIS EXISTS: `save_result` takes returns/pnl PRE-COMPUTED and there was no
+# calculator anywhere in the repo, so every row was settled by hand. The history
+# is inconsistent as a result -- older *placed* rows split the E/W stake
+# correctly (half win / half place), while older *winning* rows were logged as
+# `stake_pts * SP`, i.e. as if win-only. That OVERSTATES every winner already in
+# the table (e.g. Arapaho Gold, race_nb 0.5pt E/W, won at SP 4/1: logged +4.0,
+# actually +2.4). Rows settled through `settle()` are correct; rows predating it
+# are not. NEVER sum raw `pnl_pts` across the full table and call it system
+# performance -- the headline ROI measurement recomputes from raw picks + API
+# results independently, which is why it was unaffected by this.
+#
+# COLUMN SEMANTICS (fixed here, previously both were set to the net figure):
+#   returns_pts = GROSS return -- stake back plus profit. 0.0 on a loser.
+#   pnl_pts     = NET profit/loss -- returns_pts minus total outlay.
+# Nothing read `returns_pts` before now (it is SELECTed in get_latest_results
+# but never rendered), so correcting its meaning breaks no caller.
+
+# stake_pts on a selection row is TOTAL OUTLAY -- `_save_selection` already
+# doubles the unit stake for E/W. So an E/W bet splits stake_pts in half:
+# half on the win leg, half on the place leg.
+
+
+def _odds_to_multiplier(odds_str: str) -> float:
+    """Fractional odds string -> profit multiplier per unit staked. 0 if unparseable.
+
+    Mirrors `analyst._parse_odds_to_decimal` (kept local so this module stays
+    free of analyst's anthropic/scraper/scorer import chain). Same contract:
+    returns the FRACTIONAL multiplier, not decimal odds -- 11/1 -> 11.0, not
+    12.0. Trailing favourite markers ("13/8F", "3/1J") parse fine.
+    """
+    if not odds_str or odds_str == "CHECK PRICE":
+        return 0.0
+    s = odds_str.strip().lower()
+    if s.startswith("ev") or s == "e/fav":
+        return 1.0
+    match = re.match(r"(\d+)/(\d+)", odds_str.strip())
+    if match:
+        return int(match.group(1)) / int(match.group(2))
+    return 0.0
+
+
+def place_terms(num_runners: int, is_handicap: bool = False) -> tuple:
+    """Bookmaker each-way terms -> (number_of_places, fraction_of_odds).
+
+    Per CLAUDE.md "NB-of-day Field-Size Floor". Returns (0, 0.0) when no place
+    market exists, which is the case that makes an E/W bet impossible to strike.
+    """
+    if num_runners < 5:
+        return (0, 0.0)              # no place market at all
+    if num_runners <= 7:
+        return (2, 0.25)             # 2 places, 1/4
+    if is_handicap and num_runners >= 12:
+        return (4, 0.25)             # 4 places, 1/4 -- best terms we get
+    return (3, 0.20)                 # 3 places, 1/5
+
+
+def settle(stake_pts: float, each_way: bool, finish_position: Optional[int],
+           sp_odds: str, num_runners: int, is_handicap: bool = False,
+           morning_odds: str = "", bog: bool = True) -> dict:
+    """Settle one bet. Returns {result, returns_pts, pnl_pts, price_used, terms}.
+
+    BOG (Best Odds Guaranteed) is ON by default because CLAUDE.md mandates
+    taking morning prices with a BOG bookmaker, so we are paid the BETTER of
+    morning and SP. That is worth ~9 points of ROI to us and settling at SP
+    alone understates the book. Pass bog=False to settle strictly at SP.
+
+    finish_position None -> non-runner: full stake returned, pnl 0.
+    """
+    sp = _odds_to_multiplier(sp_odds)
+    morn = _odds_to_multiplier(morning_odds)
+    price = max(sp, morn) if bog else sp
+    if price <= 0:
+        price = max(sp, morn)  # unparseable SP -- fall back to whatever we have
+
+    if finish_position is None:
+        return {"result": "nr", "returns_pts": stake_pts, "pnl_pts": 0.0,
+                "price_used": price, "terms": (0, 0.0)}
+
+    n_places, fraction = place_terms(num_runners, is_handicap)
+
+    if each_way:
+        win_stake = place_stake = stake_pts / 2.0
+    else:
+        win_stake, place_stake = stake_pts, 0.0
+
+    returns = 0.0
+    if finish_position == 1:
+        returns += win_stake * (1.0 + price)
+
+    if place_stake:
+        if n_places == 0:
+            # An E/W bet cannot be struck in a field this small. Treat the place
+            # leg as void (stake returned) rather than silently losing it, and
+            # shout -- this means the selection layer produced an unplaceable bet.
+            logger.warning(
+                "E/W bet in a %d-runner field has no place market -- place leg "
+                "settled as VOID. Check the selection's each_way flag.",
+                num_runners,
+            )
+            returns += place_stake
+        elif finish_position <= n_places:
+            returns += place_stake * (1.0 + price * fraction)
+
+    if finish_position == 1:
+        result = "won"
+    elif each_way and n_places and finish_position <= n_places:
+        result = "placed"
+    else:
+        result = "lost"
+
+    return {
+        "result": result,
+        "returns_pts": round(returns, 4),
+        "pnl_pts": round(returns - stake_pts, 4),
+        "price_used": price,
+        "terms": (n_places, fraction),
+    }
+
+
+def settle_and_save(selection_id: int, finish_position: Optional[int],
+                    sp_odds: str, num_runners: int, is_handicap: bool = False,
+                    bog: bool = True) -> dict:
+    """Settle a selection from its stored stake/each_way/odds_guide and save it.
+
+    Reads `odds_guide` off the selection row as the morning price for BOG, so
+    the caller only needs the result facts (finish, SP, field size, handicap?).
+    """
+    row = _conn.execute(
+        "SELECT stake_pts, each_way, odds_guide, horse FROM selections WHERE id = ?",
+        (selection_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"No selection with id {selection_id}")
+
+    s = settle(
+        stake_pts=row["stake_pts"],
+        each_way=bool(row["each_way"]),
+        finish_position=finish_position,
+        sp_odds=sp_odds,
+        num_runners=num_runners,
+        is_handicap=is_handicap,
+        morning_odds=row["odds_guide"] or "",
+        bog=bog,
+    )
+    save_result(selection_id, finish_position, s["result"], sp_odds,
+                s["returns_pts"], s["pnl_pts"])
+    logger.info(
+        "Settled %s (id %s): %s %s at %.2f -> %+.3fpts",
+        row["horse"], selection_id, s["result"],
+        f"{finish_position}/{num_runners}", s["price_used"], s["pnl_pts"],
+    )
+    return s
 
 
 def save_result(selection_id: int, finish_pos: int, result: str,
