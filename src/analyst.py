@@ -875,6 +875,100 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                     f"(rubric anchor {nb_anchor:.0f})"
                 )
 
+    # CHECK 0b: RACE INTEGRITY (added 19 Jul 2026). Two faults, both live on
+    # the 19 Jul card, both previously unenforced:
+    #
+    #   (a) CROSS-RACE next_best. The output JSON schema defines next_best as
+    #       {horse, odds_guide, reasoning, each_way, adjusted_score} and NEVER
+    #       says it must be a runner in the selection's own race. Nothing
+    #       validated it. On 19 Jul the LLM filled the NB slot of picks 1 and 2
+    #       with the NEXT SELECTION IN ITS OWN LIST (Captain Cool/Stratford
+    #       15:58 -> NB "Illinois", who runs Curragh 16:25).
+    #
+    #   (b) TWO SELECTIONS IN ONE RACE. "ONE selection per race maximum"
+    #       appears three times in the prompt (system rule 8, output-format
+    #       note, race-list preamble) and NOWHERE in this gate. On 19 Jul
+    #       Captain Cool and In The Air both survived out of Stratford 15:58 —
+    #       a 5-runner chase with a stake on two of the five.
+    #
+    # (a) is the one that can misdirect money. CHECK 1 (market swap) and
+    # CHECK 2 (sub-evens replace) rewrite sel["horse"] and sel["odds_guide"]
+    # but NEVER touch race_time / race_name / course — those keys are only
+    # ever READ (renderer). So promoting a cross-race NB yields a selection
+    # whose horse and printed race disagree. Downstream, the Betfair reader
+    # (NagsReader) keys picks by (course, race_time) and then requires the
+    # horse to be present in THAT market's runners, so a mismatch fails
+    # closed — but it fails closed by SILENTLY DROPPING A REAL BET, and only
+    # at logger.debug. On 19 Jul the swap was one price tick away: Captain
+    # Cool 82 vs NB Illinois 77 is a gap of exactly 5, which SATISFIES the
+    # `score_gap <= 5` half of the market-swap test; only the price test
+    # (3.33 not shorter than 1.625) held it off.
+    #
+    # Both fixes are subtractive — they can only remove a bet, never add one.
+    # Run before every other check so nothing can act on a bad pairing.
+    for sel in sels:
+        nb = sel.get("next_best") or {}
+        nb_horse = (nb.get("horse") or "").strip()
+        if not nb_horse:
+            continue
+        meta = _resolve_race_meta(sel, race_meta_lookup)
+        if not meta or not meta.get("runners"):
+            continue  # race unresolvable — fail OPEN, never guess
+        field = {n for n, _ in meta.get("runners", [])}
+        if nb_horse.lower() not in field:
+            sel["next_best"] = {}
+            sel["nb_score"] = 0
+            compliance_fixes.append(
+                f"CROSS-RACE NB DROPPED: {nb_horse} is not a runner in "
+                f"{sel.get('race_time','')} {sel.get('course','')} "
+                f"({sel.get('horse','')}'s race) — NB cleared so the market "
+                f"swap and sub-evens checks cannot promote a horse from "
+                f"another race into this selection"
+            )
+            logger.info(
+                f"Compliance: cross-race NB {nb_horse} dropped from "
+                f"{sel.get('horse','')} ({sel.get('race_time','')} "
+                f"{sel.get('course','')})"
+            )
+
+    seen_race = {}
+    dupe_drop = set()
+    for i, sel in enumerate(sels):
+        course = (sel.get("course") or "").strip().lower()
+        rtime = (sel.get("race_time") or "").strip()
+        if not (course and rtime):
+            continue  # can't identify the race — leave it alone
+        key = (course, rtime)
+        prev = seen_race.get(key)
+        if prev is None:
+            seen_race[key] = i
+            continue
+        if sel.get("adjusted_score", 0) > sels[prev].get("adjusted_score", 0):
+            dupe_drop.add(prev)
+            seen_race[key] = i
+            kept, dropped = sel, sels[prev]
+        else:
+            dupe_drop.add(i)
+            kept, dropped = sels[prev], sel
+        compliance_fixes.append(
+            f"DUPLICATE RACE DROPPED: {dropped.get('horse','')} "
+            f"({dropped.get('adjusted_score',0)}pts) removed — same race as "
+            f"{kept.get('horse','')} ({kept.get('adjusted_score',0)}pts) at "
+            f"{rtime} {kept.get('course','')}. One selection per race."
+        )
+        logger.info(
+            f"Compliance: duplicate-race drop {dropped.get('horse','')} "
+            f"(kept {kept.get('horse','')}) at {rtime} {kept.get('course','')}"
+        )
+
+    if dupe_drop:
+        old_nap = selections.get("nap_index", 0)
+        kept_pairs = [(i, s) for i, s in enumerate(sels) if i not in dupe_drop]
+        selections["selections"] = [s for _, s in kept_pairs]
+        remap = {oi: ni for ni, (oi, _) in enumerate(kept_pairs)}
+        selections["nap_index"] = remap.get(old_nap, -1)
+        sels = selections["selections"]
+
     for i, sel in enumerate(sels):
         horse = sel.get("horse", "")
         odds = sel.get("odds_guide", "")
