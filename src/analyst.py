@@ -2025,7 +2025,10 @@ def _run_claude_judgement(top_races_data: list, meetings: list[Meeting],
 
     response = client.messages.create(
         model=JUDGEMENT_MODEL,
-        max_tokens=6000,
+        # 12000 (was 6000) gives thinking-enabled models (opus 5) room to reach
+        # the JSON answer AFTER their thinking block; a harmless cap bump for
+        # non-thinking 4.8 (unused tokens are not billed).
+        max_tokens=12000,
         # NOTE (5 Jun 2026): the `temperature=0` pin (added 22 May 2026 for
         # determinism) was REMOVED here. claude-opus-4-8 (adopted 1 Jun 2026)
         # DEPRECATES the temperature param and returns 400 invalid_request_error
@@ -2041,7 +2044,23 @@ def _run_claude_judgement(top_races_data: list, meetings: list[Meeting],
         messages=[{"role": "user", "content": prompt}],
     )
 
-    text = response.content[0].text.strip()
+    # Extract the assistant's TEXT. Do NOT assume content[0] is a text block:
+    # claude-opus-5 (and any thinking-enabled model) emits a ThinkingBlock as
+    # the first block, so content[0].text throws AttributeError -> the caller's
+    # except fires the programmatic fallback and the CLAUDE.md judgement layer
+    # is silently lost (same failure shape as the 5 Jun temperature-400 bug).
+    # Scan for the first block that actually carries text; identical result for
+    # non-thinking models (4.8), correct for thinking models (5).
+    text = next(
+        (blk.text for blk in response.content
+         if getattr(blk, "type", None) == "text" and getattr(blk, "text", "")),
+        "",
+    ).strip()
+    if not text:
+        raise ValueError(
+            "Claude returned no text block (only thinking/other blocks) -- "
+            "max_tokens may be too low for a thinking model to reach its answer"
+        )
 
     usage = response.usage
     logger.info(f"Claude API ({JUDGEMENT_MODEL}): {usage.input_tokens} in / {usage.output_tokens} out tokens")
