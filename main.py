@@ -326,49 +326,64 @@ async def run_results_check():
             stake = sel_row["stake_pts"] or 1.0
             each_way = sel_row["each_way"]
 
-            # Find this horse in results
+            # Settle this selection against today's results. All P&L now goes
+            # through database.settle_and_save(bog=True) so it is booked at BOG
+            # (better of morning `odds_guide` and SP -- worth ~9pts of ROI and
+            # what CLAUDE.md mandates), with place terms from place_terms() and
+            # field size = actual runners. Two passes so a genuine finisher
+            # always beats a same-named non-runner in an earlier-iterated race.
+            from src.database import settle_and_save
+            type_label = {"nap": "NAP", "next_best": "NB", "selection": "SEL", "race_nb": "RNB"}.get(sel_type, sel_type)
             found = False
+
+            # Pass 1 -- did the horse run? (finisher, or PU/F/UR = lost)
             for result in all_results:
-                for runner in result.get("runners", []):
+                runners = result.get("runners", [])
+                is_handicap = "handicap" in (result.get("race_name", "") or "").lower()
+                for runner in runners:
                     if _norm_horse(runner.get("horse", "")) == _norm_horse(horse_name):
-                        pos = runner.get("position", "")
-                        sp = runner.get("sp", "")
-                        sp_dec = float(runner.get("sp_dec", 0) or 0)
-                        ovr_btn = runner.get("ovr_btn", "")
-
-                        # Calculate P&L
-                        pnl = 0.0
-                        result_str = "lost"
-
-                        if pos == "1":
-                            result_str = "won"
-                            pnl = stake * (sp_dec - 1) if sp_dec > 0 else 0
+                        pos = str(runner.get("position", "") or "")
+                        sp = runner.get("sp", "") or ""
+                        # PU / F / UR / any non-digit (or a bogus 0) -> did not
+                        # complete = LOST. Use a sentinel ABOVE any place count:
+                        # NEVER None (settle() reads that as a non-runner refund)
+                        # and NEVER 0 (0 <= n_places, so settle() would mis-book
+                        # a pulled-up horse as PLACED and pay the place leg).
+                        finish_pos = int(pos) if (pos.isdigit() and int(pos) >= 1) else 999
+                        s = settle_and_save(sel_id, finish_pos, sp, len(runners),
+                                            is_handicap=is_handicap, bog=True)
+                        pnl = s["pnl_pts"]
+                        total_pnl += pnl
+                        if s["result"] == "won":
                             winners += 1
                             emoji = "✅"
-                        elif pos in ("2", "3", "4") and each_way:
-                            result_str = "placed"
-                            ew_fraction = 0.25 if int(result.get("field_size", 0) or 0) >= 16 else 0.2
-                            ew_return = (stake / 2) * ((sp_dec - 1) * ew_fraction)
-                            pnl = ew_return - (stake / 2)  # Win part lost, place part returned
+                        elif s["result"] == "placed":
                             placed += 1
                             emoji = "🔸"
                         else:
-                            pnl = -stake
                             emoji = "❌"
-
-                        total_pnl += pnl
-
-                        type_label = {"nap": "NAP", "next_best": "NB", "selection": "SEL", "race_nb": "RNB"}.get(sel_type, sel_type)
-                        msg += f"{emoji} {type_label}: {horse_name} - {pos}{'st' if pos=='1' else 'nd' if pos=='2' else 'rd' if pos=='3' else 'th'} (SP {sp}) {pnl:+.1f}pts\n"
-
-                        # Save result
-                        from src.database import save_result
-                        save_result(sel_id, int(pos) if pos.isdigit() else 0, result_str, sp, pnl if pnl > 0 else 0, pnl)
-
+                        pos_lbl = pos if pos else "-"
+                        msg += (f"{emoji} {type_label}: {horse_name} - {pos_lbl} "
+                                f"(SP {sp}, paid {s['price_used']:.2f}) {pnl:+.2f}pts\n")
                         found = True
                         break
                 if found:
                     break
+
+            # Pass 2 -- authoritative non-runner (results carry a `non_runners`
+            # name string). Void: full stake returned, pnl 0. Only if it did not
+            # run above, so a same-named finisher can never be voided by mistake.
+            if not found:
+                for result in all_results:
+                    nrs = [_norm_horse(x) for x in (result.get("non_runners", "") or "").split(",") if x.strip()]
+                    if _norm_horse(horse_name) in nrs:
+                        is_handicap = "handicap" in (result.get("race_name", "") or "").lower()
+                        s = settle_and_save(sel_id, None, "", len(result.get("runners", [])),
+                                            is_handicap=is_handicap, bog=True)
+                        total_pnl += s["pnl_pts"]  # 0.0 -- stake returned
+                        msg += f"➖ {type_label}: {horse_name} - NON-RUNNER (void, stake returned)\n"
+                        found = True
+                        break
 
             if not found:
                 pending += 1
