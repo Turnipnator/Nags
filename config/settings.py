@@ -18,7 +18,7 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 # Star Prospect 88, Fairlawn Flyer 81 @ 22/1). 4.8 adopted with the now-
 # stronger guardrails (NAP/NB price caps, C5/6 score-market gate, temp=0,
 # NB-of-day score floor) as the safety net. Watch early cards for inflation.
-JUDGEMENT_MODEL = os.getenv("JUDGEMENT_MODEL", "claude-opus-4-8")
+JUDGEMENT_MODEL = os.getenv("JUDGEMENT_MODEL", "claude-opus-5")
 
 # Judgement-layer guardrails (added 30 Jun 2026) — make the bot's score
 # MODEL-AGNOSTIC so the Telegram output is reproducible and converges with the
