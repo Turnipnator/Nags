@@ -201,6 +201,17 @@ def _save_cherry_picks(today: date, selections: dict):
         stake = 2.0 if sel_type == "nap" else 1.5 if sel_type == "next_best" else 1.0
         if nap_idx < 0:
             stake = 1.0  # Flat stakes when no NAP qualifies (nothing scored 78+)
+        # Compliance demote: the NB field-size floor, price cap, NB score floor,
+        # F2/F3 and the going gate all set `nb_price_capped` to mean "treat as a
+        # 0.75pt race SEL stake, not the 1.5/2.0 type stake". This was set in the
+        # gate but never read here, so the demote never reached the persisted
+        # stake. Fixed 28 Jul 2026 — Pearl Eye (Ayr 16:15, 5-runner field) was
+        # demoted by the NB field-size floor yet persisted at the full 1.5pt E/W
+        # and lost £30 instead of the intended £15 (0.75pt E/W). Applied last so
+        # it wins over the type/flat stake. each_way is already forced by the
+        # gate where a place pool exists, so the 0.75 captures the place leg.
+        if sel.get("nb_price_capped"):
+            stake = 0.75
         each_way = sel.get("each_way", False)
 
         reasoning = sel.get("reasoning", [])
