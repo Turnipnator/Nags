@@ -260,7 +260,13 @@ def _save_cherry_picks(today: date, selections: dict):
                     rnb.get("reasoning", ""),
                     "",
                     "",
-                    0,
+                    # Persist the NB's LLM score (was hardcoded 0). It carries an
+                    # adjusted_score in the judgement output but was discarded,
+                    # so every race_nb logged score 0 — which makes the SEL-vs-NB
+                    # market-swap gap impossible to backtest. Storing it now so a
+                    # future "widen the swap gap?" question is measurable. Purely
+                    # additive: affects no stake, bet or selection. (28 Jul 2026)
+                    rnb.get("adjusted_score", 0),
                 ),
             )
 
