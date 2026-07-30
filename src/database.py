@@ -82,6 +82,13 @@ def init_db():
             nb_result TEXT,
             notes TEXT
         );
+
+        -- One result per selection. The nightly settler already skips rows that
+        -- have a result, but a manual re-settle used to silently INSERT a second
+        -- row and double-count the P&L (bit us on 29 Jul 2026: Pershaada settled
+        -- twice, day total read +23.2pts instead of +16.0). Make it impossible.
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_results_selection
+            ON results(selection_id);
     """)
     _conn.commit()
     logger.info(f"Database initialised at {DB_PATH}")
@@ -316,10 +323,20 @@ def settle_and_save(selection_id: int, finish_position: Optional[int],
 
 def save_result(selection_id: int, finish_pos: int, result: str,
                 sp_odds: str, returns_pts: float, pnl_pts: float):
-    """Save a result for a selection."""
+    """Save a result for a selection.
+
+    Upsert, not blind insert: re-settling a selection CORRECTS its result row
+    rather than adding a second one. Double rows double-count P&L.
+    """
     _conn.execute(
         """INSERT INTO results (selection_id, finish_position, result, sp_odds, returns_pts, pnl_pts)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(selection_id) DO UPDATE SET
+               finish_position = excluded.finish_position,
+               result          = excluded.result,
+               sp_odds         = excluded.sp_odds,
+               returns_pts     = excluded.returns_pts,
+               pnl_pts         = excluded.pnl_pts""",
         (selection_id, finish_pos, result, sp_odds, returns_pts, pnl_pts),
     )
     _conn.commit()

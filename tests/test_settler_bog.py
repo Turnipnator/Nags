@@ -29,6 +29,8 @@ def _fresh_db():
         CREATE TABLE results (id INTEGER PRIMARY KEY, selection_id INT, finish_position INT,
           result TEXT, sp_odds TEXT, returns_pts REAL DEFAULT 0, pnl_pts REAL DEFAULT 0,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+        -- must mirror init_db(): save_result upserts on this
+        CREATE UNIQUE INDEX idx_results_selection ON results(selection_id);
         """
     )
 
