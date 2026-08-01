@@ -90,8 +90,43 @@ def init_db():
         CREATE UNIQUE INDEX IF NOT EXISTS idx_results_selection
             ON results(selection_id);
     """)
+
+    # MIGRATION (1 Aug 2026): `superseded_at` marks rows that are no longer part
+    # of today's live card, because a later `/run` replaced it. NULL = live.
+    # Idempotent: SQLite has no ADD COLUMN IF NOT EXISTS, so probe table_info.
+    # Rows are NEVER deleted -- this is a money ledger and superseded picks stay
+    # readable for audit. See settings.DAILY_CARD_REPLACE_ENABLED.
+    cols = {r[1] for r in _conn.execute("PRAGMA table_info(selections)")}
+    if "superseded_at" not in cols:
+        _conn.execute("ALTER TABLE selections ADD COLUMN superseded_at TEXT")
+        logger.info("Migration: added selections.superseded_at")
+
     _conn.commit()
     logger.info(f"Database initialised at {DB_PATH}")
+
+
+def supersede_todays_selections() -> int:
+    """Mark every live selection created today as superseded. Returns the count.
+
+    Called by the save path immediately BEFORE a new card is written, so a
+    second `/run` replaces the day's card instead of stacking a second full set
+    of stakes on top of it (the 1 Aug 2026 two-NAP / £245 day).
+
+    Deliberately does NOT touch rows that already have a result -- if a pick has
+    been settled it was a real, resolved bet and superseding it would silently
+    rewrite history. Those rows stay live and still count toward the ledger.
+    """
+    now = datetime.now().isoformat(timespec="seconds")
+    cur = _conn.execute(
+        """UPDATE selections
+              SET superseded_at = ?
+            WHERE date(created_at) = date('now')
+              AND superseded_at IS NULL
+              AND id NOT IN (SELECT selection_id FROM results)""",
+        (now,),
+    )
+    _conn.commit()
+    return cur.rowcount
 
 
 def save_meeting(course: str, meeting_date: date, going: str = None,

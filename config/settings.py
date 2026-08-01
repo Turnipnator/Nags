@@ -115,6 +115,21 @@ FILTER_SHORTNAP_ENABLED = os.getenv("FILTER_SHORTNAP_ENABLED", "true").lower() =
 FILTER_SHORTNAP_SHADOW = os.getenv("FILTER_SHORTNAP_SHADOW", "true").lower() == "true"
 SHORTNAP_MIN_ODDS = float(os.getenv("SHORTNAP_MIN_ODDS", "4.0"))  # fractional
 
+# ---------------------------------------------------------------------------
+# DAILY CARD REPLACEMENT (added 1 Aug 2026)
+# ---------------------------------------------------------------------------
+# The Operating Policy cap ("max 6 selections per day, 1 NAP") was enforced
+# PER RUN, not per day: `_enforce_compliance` only ever sees one run's list and
+# `_save_cherry_picks` did a bare INSERT with no knowledge of what today already
+# held. So a second `/run` issued a whole fresh card at full stakes.
+#   1 Aug 2026: Thirsk then Goodwood = 8 top-level selections, TWO NAPs,
+#   £245 staked at £10/pt, -£116.38 (-47.5%).
+# Paul's call: a second run REPLACES the day's card rather than adding to it.
+# Implemented as SUPERSEDE, never DELETE -- rows stay for audit with
+# `superseded_at` set, and every live read path filters them out.
+DAILY_CARD_REPLACE_ENABLED = os.getenv(
+    "DAILY_CARD_REPLACE_ENABLED", "true").lower() == "true"
+
 # Scheduling (24h format, UK timezone)
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 SCRAPE_TIME = os.getenv("SCRAPE_TIME", "07:00")

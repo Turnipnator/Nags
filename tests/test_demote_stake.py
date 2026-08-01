@@ -18,10 +18,15 @@ def _fresh_db():
     db._conn = sqlite3.connect(":memory:")
     db._conn.row_factory = sqlite3.Row
     db._conn.executescript(
+        # must mirror init_db(): _save_cherry_picks supersedes today's earlier
+        # card first (1 Aug 2026), which reads `superseded_at` and `results`.
         """CREATE TABLE selections (id INTEGER PRIMARY KEY, meeting_id INT, race_time TEXT,
              race_name TEXT, horse TEXT, selection_type TEXT, odds_guide TEXT, each_way BOOLEAN,
              stake_pts REAL, reasoning TEXT, confidence TEXT, danger TEXT, score REAL,
-             created_at TEXT DEFAULT CURRENT_TIMESTAMP);"""
+             created_at TEXT DEFAULT CURRENT_TIMESTAMP, superseded_at TEXT);
+           CREATE TABLE results (id INTEGER PRIMARY KEY, selection_id INT,
+             finish_position INT, result TEXT, sp_odds TEXT,
+             returns_pts REAL DEFAULT 0, pnl_pts REAL DEFAULT 0);"""
     )
 
 

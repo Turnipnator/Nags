@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 
 import schedule
 
-from config.settings import TIMEZONE, ANALYSIS_TIME, RESULTS_TIME, LOG_LEVEL, ANTHROPIC_API_KEY, FOCUS_COURSES, AUTO_SCHEDULE, AUTO_RESULTS
+from config.settings import TIMEZONE, ANALYSIS_TIME, RESULTS_TIME, LOG_LEVEL, ANTHROPIC_API_KEY, FOCUS_COURSES, AUTO_SCHEDULE, AUTO_RESULTS, DAILY_CARD_REPLACE_ENABLED
 from src.database import init_db, save_meeting, save_selections, is_bot_paused, _set_state, _get_state
 from src.scraper import Scraper
 from src.analyst import analyse_all_meetings, format_selections_telegram
@@ -187,6 +187,23 @@ def _save_cherry_picks(today: date, selections: dict):
     if _conn is None:
         return
 
+    # DAILY CARD REPLACEMENT (added 1 Aug 2026). The Operating Policy cap of
+    # 6 selections / 1 NAP per DAY was only ever enforced per RUN, so a second
+    # `/run` wrote a whole second card at full stakes -- 1 Aug 2026 issued TWO
+    # NAPs across Thirsk and Goodwood, 8 top-level selections, £245 staked.
+    # A later run now REPLACES the day's card: earlier live rows are superseded
+    # (never deleted -- this is a money ledger) and every live read path filters
+    # `superseded_at IS NULL`. Rows that already have a result are left alone;
+    # they were real settled bets and must keep counting.
+    if DAILY_CARD_REPLACE_ENABLED:
+        from src.database import supersede_todays_selections
+        n = supersede_todays_selections()
+        if n:
+            logger.info(
+                f"DAILY CARD REPLACED: superseded {n} earlier selection(s) "
+                f"from today — this run's card is now the day's card"
+            )
+
     sels = selections.get("selections", [])
     nap_idx = selections.get("nap_index", 0)
 
@@ -321,6 +338,7 @@ async def run_results_check():
                FROM selections
                WHERE race_time != ''
                  AND date(created_at) = date('now')
+                 AND superseded_at IS NULL
                  AND id NOT IN (SELECT selection_id FROM results)
                ORDER BY race_time"""
         ).fetchall()
