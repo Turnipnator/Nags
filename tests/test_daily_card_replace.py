@@ -191,3 +191,77 @@ def test_migration_is_idempotent(tmp_path):
             conn.execute("ALTER TABLE selections ADD COLUMN superseded_at TEXT")
     cols = {r[1] for r in conn.execute("PRAGMA table_info(selections)")}
     assert "superseded_at" in cols
+
+
+# --- source tagging (2 Aug 2026) -------------------------------------------
+
+def _fresh_db_v2(tmp_path):
+    conn = _fresh_db(tmp_path)
+    conn.execute("ALTER TABLE selections ADD COLUMN source TEXT NOT NULL DEFAULT 'bot'")
+    conn.commit()
+    return conn
+
+
+def _add_src(conn, horse, sel_type, source):
+    conn.execute(
+        """INSERT INTO selections
+           (meeting_id,race_time,race_name,horse,selection_type,odds_guide,
+            each_way,stake_pts,score,source,created_at)
+           VALUES (NULL,'14:08','Chester - X',?,?,'3/1',1,3.0,80,?,datetime('now'))""",
+        (horse, sel_type, source))
+    conn.commit()
+
+
+def _supersede_v2(conn):
+    """Mirror of the patched supersede: bot rows only."""
+    cur = conn.execute(
+        """UPDATE selections SET superseded_at = '2026-08-02T20:00:00'
+            WHERE date(created_at) = date('now') AND superseded_at IS NULL
+              AND source = 'bot'
+              AND id NOT IN (SELECT selection_id FROM results)""")
+    conn.commit()
+    return cur.rowcount
+
+
+def test_existing_rows_backfill_to_bot(tmp_path):
+    """ADD COLUMN ... DEFAULT 'bot' must backfill history, not leave NULLs."""
+    conn = _fresh_db(tmp_path)
+    _add(conn, "Old Bot Pick", "nap")
+    conn.execute("ALTER TABLE selections ADD COLUMN source TEXT NOT NULL DEFAULT 'bot'")
+    conn.commit()
+    assert conn.execute("SELECT source FROM selections").fetchone()[0] == "bot"
+
+
+def test_manual_card_survives_a_bot_run(tmp_path):
+    """A later bot /run replaces the BOT card and leaves manual picks alone."""
+    conn = _fresh_db_v2(tmp_path)
+    _add_src(conn, "Tiger", "selection", "manual")
+    _add_src(conn, "Bot Pick A", "nap", "bot")
+    assert _supersede_v2(conn) == 1              # only the bot row
+    live = conn.execute(
+        """SELECT horse, source FROM selections
+           WHERE superseded_at IS NULL ORDER BY id""").fetchall()
+    assert [tuple(r) for r in live] == [("Tiger", "manual")]
+
+
+def test_betfair_query_never_sees_manual(tmp_path):
+    """THE MONEY TEST: the exchange must not stake a manually-logged pick."""
+    conn = _fresh_db_v2(tmp_path)
+    _add_src(conn, "Tiger", "selection", "manual")
+    _add_src(conn, "Bot Pick A", "nap", "bot")
+    rows = conn.execute(
+        """SELECT horse FROM selections
+           WHERE date(created_at) = date('now')
+             AND superseded_at IS NULL
+             AND (source IS NULL OR source = 'bot')""").fetchall()
+    assert [r["horse"] for r in rows] == ["Bot Pick A"]
+
+
+def test_bot_roi_can_exclude_manual(tmp_path):
+    """Bot performance queries must be able to filter manual picks out."""
+    conn = _fresh_db_v2(tmp_path)
+    _add_src(conn, "Tiger", "selection", "manual")
+    _add_src(conn, "Bot Pick A", "nap", "bot")
+    n = conn.execute(
+        "SELECT count(*) FROM selections WHERE source='bot'").fetchone()[0]
+    assert n == 1

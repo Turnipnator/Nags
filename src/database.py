@@ -101,6 +101,18 @@ def init_db():
         _conn.execute("ALTER TABLE selections ADD COLUMN superseded_at TEXT")
         logger.info("Migration: added selections.superseded_at")
 
+    # MIGRATION (2 Aug 2026): `source` separates bot-generated picks from
+    # manually-logged ones. Claude's own cards are now logged here so they are
+    # settleable and measurable rather than living in a chat log -- but they
+    # MUST NOT contaminate the bot's ROI measurement, and MUST NOT be visible to
+    # the Betfair bot (which would otherwise stake real money on a pick no
+    # strategy ever produced). ADD COLUMN with a DEFAULT backfills every
+    # existing row to 'bot', which is correct: everything before today was.
+    if "source" not in cols:
+        _conn.execute(
+            "ALTER TABLE selections ADD COLUMN source TEXT NOT NULL DEFAULT 'bot'")
+        logger.info("Migration: added selections.source (default 'bot')")
+
     _conn.commit()
     logger.info(f"Database initialised at {DB_PATH}")
 
@@ -122,11 +134,40 @@ def supersede_todays_selections() -> int:
               SET superseded_at = ?
             WHERE date(created_at) = date('now')
               AND superseded_at IS NULL
+              AND source = 'bot'
               AND id NOT IN (SELECT selection_id FROM results)""",
         (now,),
     )
     _conn.commit()
     return cur.rowcount
+
+
+def log_manual_selection(race_time: str, race_name: str, horse: str,
+                         sel_type: str, odds_guide: str, each_way: bool,
+                         stake_pts: float, reasoning: str = "",
+                         score: float = 0.0, created_date: str = None) -> int:
+    """Log a manually-chosen pick (Claude's own card) and return its id.
+
+    Tagged `source='manual'` so it is settleable and measurable alongside the
+    bot's picks WITHOUT contaminating the bot's ROI or reaching the Betfair bot.
+
+    `stake_pts` is TOTAL OUTLAY in the ledger's £10/pt convention -- the same
+    meaning `_save_cherry_picks` gives it, already doubled for E/W. A manual
+    card staked at a different £/pt must be converted BEFORE calling this, or
+    `pnl_pts * 10` stops being the true P&L.
+    """
+    cur = _conn.execute(
+        """INSERT INTO selections
+           (meeting_id, race_time, race_name, horse, selection_type,
+            odds_guide, each_way, stake_pts, reasoning, confidence, danger,
+            score, source, created_at)
+           VALUES (NULL,?,?,?,?,?,?,?,?,'','',?, 'manual',
+                   COALESCE(?, CURRENT_TIMESTAMP))""",
+        (race_time, race_name, horse, sel_type, odds_guide, each_way,
+         stake_pts, reasoning, score, created_date),
+    )
+    _conn.commit()
+    return cur.lastrowid
 
 
 def save_meeting(course: str, meeting_date: date, going: str = None,
