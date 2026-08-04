@@ -175,6 +175,64 @@ chk("GB NH C5 blocked", _meets_class_floor(mk("Class 5", "Chase")) is False)
 chk("Flat pattern race (Class 1 + Group 3) passes",
     _meets_class_floor(mk("Class 1", "Flat", "Group 3")) is True)
 
+
+# --------------------------------------------------------------------------
+print("5. CHECK 17 — place-market clamp on the LLM's own each_way")
+# --------------------------------------------------------------------------
+import copy  # noqa: E402
+import src.analyst as A  # noqa: E402
+
+
+def sels_4r(each_way=True, nb_ew=True):
+    """Russian Rumour, 17/2, FOUR-runner Lingfield handicap (4 Aug 2026)."""
+    return {
+        "selections": [{
+            "horse": "Russian Rumour", "odds_guide": "17/2",
+            "adjusted_score": 77, "each_way": each_way,
+            "race_time": "19:18", "course": "Lingfield",
+            "race_name": "Trusted Betting Site Comparison Handicap Stakes",
+            "reasoning": [],
+            "next_best": {"horse": "Taritino", "odds_guide": "5/2",
+                          "adjusted_score": 62, "each_way": nb_ew},
+        }],
+        "nap_index": -1,
+    }
+
+
+LOOKUP_4R = {
+    "trusted betting site comparison handicap stakes": {
+        "num_runners": 4, "race_type": "Flat", "pattern": "",
+        "race_class": "Class 4", "course": "Lingfield", "race_time": "19:18",
+        "surface": "Turf", "going": "Good To Firm",
+        "going_detailed": "GOOD TO FIRM", "distance": "1m6f", "api_tip": "",
+        "runners": [("russian rumour", 8.5), ("taritino", 2.5),
+                    ("scarlet moon", 8.0), ("tabasko", 0.727)],
+    },
+}
+LOOKUP_8R = {k: {**v, "num_runners": 8} for k, v in LOOKUP_4R.items()}
+
+out = A._enforce_compliance(copy.deepcopy(sels_4r()), {}, LOOKUP_4R)
+chk("LLM each_way CLEARED in 4-runner field",
+    out["selections"][0]["each_way"] is False)
+chk("next_best each_way CLEARED too",
+    out["selections"][0]["next_best"]["each_way"] is False)
+chk("clamp is logged",
+    any("NO PLACE MARKET" in x for x in out.get("compliance_log", [])))
+
+out = A._enforce_compliance(copy.deepcopy(sels_4r()), {}, LOOKUP_8R)
+chk("8-runner field keeps E/W (no regression)",
+    out["selections"][0]["each_way"] is True)
+
+out = A._enforce_compliance(copy.deepcopy(sels_4r(each_way=False, nb_ew=False)),
+                            {}, LOOKUP_4R)
+chk("already win-only stays win-only, no spurious fix",
+    out["selections"][0]["each_way"] is False
+    and not any("NO PLACE MARKET" in x for x in out.get("compliance_log", [])))
+
+out = A._enforce_compliance(copy.deepcopy(sels_4r()), {}, {})
+chk("unresolvable race does NOT clamp (never guess)",
+    out["selections"][0]["each_way"] is True)
+
 print()
 print(f"RESULT: {sum(results)}/{len(results)} passed")
 sys.exit(0 if all(results) else 1)

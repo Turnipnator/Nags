@@ -1644,6 +1644,41 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
             logger.info("Compliance: double realigned after F1/F2 enforcement")
             compliance_fixes.append("DOUBLE REALIGNED after selection filter (F1/F2)")
 
+    # CHECK 17: PLACE-MARKET CLAMP (added 4 Aug 2026) — runs LAST, after every
+    # check that can set or re-set each_way.
+    # The 4 Aug place-market guard was first applied only to the two
+    # DETERMINISTIC setters (the CHECK 1 swap and CHECK 11's going demote).
+    # That missed the main source: the LLM emits `each_way` itself in its
+    # output JSON, applying "handicaps are ALWAYS E/W" with no field-size
+    # test, and nothing downstream corrected it. Caught on the 4 Aug dry run —
+    # Russian Rumour still came back each_way=true in a FOUR-runner handicap
+    # (the model even noted in its own prose that bookmakers would settle it
+    # win-only, then set the flag anyway).
+    # Bookmakers offer no place market below EW_MIN_RUNNERS_FOR_PLACE (5), so
+    # this clamps whatever anyone set. Strictly subtractive — only ever turns
+    # E/W OFF, so it can never increase outlay. num_runners <= 0 (unknown)
+    # does NOT clamp: never guess a field we could not resolve.
+    if EW_REQUIRE_PLACE_MARKET:
+        for sel in sels:
+            meta = _resolve_race_meta(sel, race_meta_lookup) or {}
+            n = meta.get("num_runners", 0) or 0
+            if not (0 < n < EW_MIN_RUNNERS_FOR_PLACE):
+                continue
+            for target, label in ((sel, sel.get("horse", "")),
+                                  (sel.get("next_best") or {},
+                                   (sel.get("next_best") or {}).get("horse", ""))):
+                if target.get("each_way") and label:
+                    target["each_way"] = False
+                    compliance_fixes.append(
+                        f"NO PLACE MARKET: {label} ({n} runners) — E/W flag "
+                        f"cleared, bookmakers offer win-only below "
+                        f"{EW_MIN_RUNNERS_FOR_PLACE} runners"
+                    )
+                    logger.info(
+                        f"Compliance: cleared unplaceable E/W on {label} "
+                        f"({n}-runner field)"
+                    )
+
     # Log all fixes
     if compliance_fixes:
         existing_log = selections.get("compliance_log", [])
