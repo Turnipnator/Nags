@@ -25,6 +25,8 @@ from config.settings import (
     LONGSHOT_MAX_ODDS, FILTER_HIGHSCORE_ENABLED, FILTER_HIGHSCORE_SHADOW,
     HIGHSCORE_DEMOTE_AT, FILTER_SHORTNAP_ENABLED, FILTER_SHORTNAP_SHADOW,
     SHORTNAP_MIN_ODDS,
+    GOING_DETAILED_REAL_FIELD, EW_REQUIRE_PLACE_MARKET,
+    EW_MIN_RUNNERS_FOR_PLACE, CLASS_FLOOR_BLOCKS_UNCLASSED,
 )
 from src.scraper import Runner, Race, Meeting
 from src.scorer import RunnerScore, Scorer
@@ -448,9 +450,23 @@ def _meets_class_floor(race) -> bool:
     """
     rc = (race.race_class or "").lower()
     rt = (race.race_type or "").lower()
-    # Group/Listed/Grade always pass
-    if any(g in rc for g in ("group", "grade", "listed")):
+    pat = (getattr(race, "pattern", "") or "").lower()
+    # Group/Listed/Grade always pass. Checked on `pattern` as well as
+    # `race_class` because the API stores pattern races as
+    # race_class="Class 1" with the real level in `pattern` — and Irish
+    # pattern races carry the level in `pattern` with race_class empty.
+    if any(g in rc or g in pat for g in ("group", "grade", "listed")):
         return True
+    # UNCLASSED RACES (added 4 Aug 2026, Paul's call).
+    # Irish cards carry race_class="" — the substring tests below then match
+    # nothing and every unclassed Irish race passed the floor by DEFAULT.
+    # On 4 Aug 2026 that put a 15-runner Roscommon maiden hurdle with five
+    # 150/1 shots into the day's selections: it did not clear the floor, it
+    # bypassed it, and it is precisely the form-compressed field the floor
+    # was written to exclude. Missing class is now treated as BELOW the
+    # floor; Irish pattern racing still passes on the `pattern` test above.
+    if CLASS_FLOOR_BLOCKS_UNCLASSED and not rc.strip():
+        return False
     is_nh = any(t in rt for t in ("hurdle", "chase", "nh flat", "bumper", "national hunt"))
     if is_nh:
         if "class 4" in rc or "class 5" in rc:
@@ -1039,8 +1055,12 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                 sel["horse"], nb["horse"] = nb["horse"], sel["horse"]
                 sel["odds_guide"], nb["odds_guide"] = nb["odds_guide"], sel["odds_guide"]
                 sel["adjusted_score"], nb["adjusted_score"] = nb.get("adjusted_score", nb_score), score
-                sel["each_way"] = _should_be_each_way_from_odds(nb_odds, sel.get("race_name", ""), 0)
-                nb["each_way"] = _should_be_each_way_from_odds(odds, sel.get("race_name", ""), 0)
+                # Field size passed through so the place-market guard can see
+                # it (was hardcoded 0 = "unknown", which skipped the guard).
+                swap_meta = _resolve_race_meta(sel, race_meta_lookup) or {}
+                swap_n = swap_meta.get("num_runners", 0) or 0
+                sel["each_way"] = _should_be_each_way_from_odds(nb_odds, sel.get("race_name", ""), swap_n)
+                nb["each_way"] = _should_be_each_way_from_odds(odds, sel.get("race_name", ""), swap_n)
 
                 # Swap reasoning
                 old_sel_reasoning = sel.get("reasoning", [])
@@ -1374,7 +1394,12 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
         # Action: if drift >= 2 OR volatility phrase present, demote
         if drift >= 2 or is_volatile:
             horse = sel.get("horse", "")
-            sel["each_way"] = True
+            # Place-market guard (4 Aug 2026): the demote forces E/W, but
+            # below 5 runners no place market exists to force it into.
+            gate_n = meta.get("num_runners", 0) or 0
+            if not (EW_REQUIRE_PLACE_MARKET
+                    and 0 < gate_n < EW_MIN_RUNNERS_FOR_PLACE):
+                sel["each_way"] = True
             if selections.get("nap_index") == i:
                 selections["nap_index"] = -1
                 if drift >= 2:
@@ -1631,9 +1656,26 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
 
 
 def _should_be_each_way_from_odds(odds_str: str, race_name: str, num_runners: int) -> bool:
-    """Determine each-way from odds string."""
+    """Determine each-way from odds, gated on a place market existing.
+
+    PLACE-MARKET GUARD (added 4 Aug 2026): bookmakers offer no place market
+    below EW_MIN_RUNNERS_FOR_PLACE (5) runners, so an E/W flag in a 2-4 runner
+    field is unplaceable. Caught at Lingfield 19:18 on 4 Aug 2026 — Russian
+    Rumour was flagged E/W in a FOUR-runner handicap (the "handicaps are always
+    E/W" rule has no field-size test); the bot noted the problem in its own
+    prose and set the flag anyway. Mirrors the guard the 16 May 2026 NB-of-day
+    demote path already applies. Strictly subtractive — this can only turn E/W
+    OFF, never on, so it can never increase outlay on any bet.
+
+    `num_runners <= 0` means "unknown", which does NOT block: callers that
+    genuinely have no field size keep the pre-existing odds-only behaviour.
+    """
     dec = _parse_odds_to_decimal(odds_str)
-    return dec >= 3.0
+    if dec < 3.0:
+        return False
+    if EW_REQUIRE_PLACE_MARKET and 0 < num_runners < EW_MIN_RUNNERS_FOR_PLACE:
+        return False
+    return True
 
 
 def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
@@ -1854,15 +1896,27 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
         # selection by race_name to enforce system-resistant + sub-evens.
         # course / surface / runners-with-odds added 7 May 2026 for AW
         # Class 5/6 targeted rules (weight-rise blocker + no-NAP-on-fav).
-        # Compose going_detailed from available fields. The Race model
-        # doesn't carry going_detailed natively, so we synthesise from
-        # `going` + `weather` which the scraper does populate.
+        # GOING DETAIL (fixed 4 Aug 2026). This used to synthesise a
+        # going_detailed string as `going + " " + weather` because the Race
+        # model did not carry the real field. That made Option Y's volatility
+        # phrase list read the WEATHER FORECAST: on 4 Aug 2026 Ffos Las
+        # produced "Good Showers", matched "showers", and blocked the day's
+        # only 75+ NAP on a track whose actual going report read
+        # "GOOD (GoingStick: 6.0)" — completely stable. It was blind in the
+        # other direction too: Catterick's real "GOOD, Good to firm in places"
+        # contains a listed phrase the gate could never see.
+        # The scraper now captures the real field; `weather` no longer feeds
+        # the volatility check. Empty => "" => _going_volatility_phrases
+        # returns False => FAILS OPEN (no demotion invented from missing data).
         going_str = getattr(race, "going", "") or ""
-        weather_str = getattr(race, "weather", "") or ""
-        going_detailed_synth = (
-            f"{going_str} {weather_str}".strip()
-            if (going_str or weather_str) else ""
-        )
+        if GOING_DETAILED_REAL_FIELD:
+            going_detailed_val = getattr(race, "going_detailed", "") or ""
+        else:
+            weather_str = getattr(race, "weather", "") or ""
+            going_detailed_val = (
+                f"{going_str} {weather_str}".strip()
+                if (going_str or weather_str) else ""
+            )
         race_meta_lookup[(race.name or "").lower()] = {
             "num_runners": race.num_runners,
             "race_type": race.race_type or "",
@@ -1873,7 +1927,7 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
             "race_time": race.time or "",
             "surface": race.surface or "",
             "going": going_str,
-            "going_detailed": going_detailed_synth,
+            "going_detailed": going_detailed_val,
             "api_tip": getattr(race, "api_tip", "") or "",
             "runners": [
                 (sr.runner.name.lower(), _parse_odds_to_decimal(sr.runner.odds or ""))

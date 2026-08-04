@@ -19,7 +19,7 @@ from typing import Optional
 import httpx
 
 from config.settings import (
-    RACING_API_USERNAME, RACING_API_PASSWORD, VALID_COURSES,
+    RACING_API_USERNAME, RACING_API_PASSWORD, VALID_COURSES, NR_PRICE_ONLY,
 )
 
 logger = logging.getLogger(__name__)
@@ -165,6 +165,13 @@ class Race:
     race_class: Optional[str] = None
     race_type: Optional[str] = None
     going: Optional[str] = None
+    # The going REPORT's own detail text, e.g. "GOOD, Good to firm in places
+    # (GoingStick: 7.2)". Added 4 Aug 2026. Option Y's volatility phrase list
+    # is specified against this field; before this it was never captured, so
+    # analyst.py synthesised one from `going` + `weather` and ended up matching
+    # weather FORECASTS instead of going hedges. Keep distinct from `weather` --
+    # they are different signals and only this one feeds the volatility gate.
+    going_detailed: Optional[str] = None
     prize_money: Optional[str] = None
     num_runners: int = 0
     runners: list[Runner] = field(default_factory=list)
@@ -653,6 +660,7 @@ class Scraper:
             race_class=data.get("race_class", ""),
             race_type=data.get("type", ""),
             going=data.get("going", ""),
+            going_detailed=data.get("going_detailed", ""),
             prize_money=data.get("prize", ""),
             surface=data.get("surface", ""),
             age_restriction=data.get("age_band", ""),
@@ -666,9 +674,10 @@ class Scraper:
 
         parsed: list = []
         for runner_data in data.get("runners", []):
-            runner = self._parse_runner(runner_data)
+            has_price = self._has_bookmaker_price(runner_data)
+            runner = self._parse_runner(runner_data, has_price)
             if runner:
-                parsed.append((runner, self._has_bookmaker_price(runner_data)))
+                parsed.append((runner, has_price))
 
         # NON-RUNNER FILTER (9 Jul 2026).
         # The API keeps withdrawn horses in `runners` — and they still carry a
@@ -722,16 +731,35 @@ class Scraper:
                 return True
         return False
 
-    def _parse_runner(self, data: dict) -> Optional[Runner]:
-        """Parse a runner from API response into our Runner dataclass."""
+    def _parse_runner(self, data: dict, has_price: bool = True) -> Optional[Runner]:
+        """Parse a runner from API response into our Runner dataclass.
+
+        `has_price` is the caller's `_has_bookmaker_price` result and governs
+        the legacy no-jockey drop below.
+        """
         name = data.get("horse", "")
         if not name:
             return None
 
-        # Skip non-runners (no jockey assigned)
+        # NO-JOCKEY DROP (narrowed 4 Aug 2026).
+        # This was the ORIGINAL non-runner heuristic, and the 9 Jul 2026 fix
+        # recorded that it "never fired for a single one" — withdrawn horses
+        # keep their jockey; what the API strips is the PRICE. Left in place
+        # unconditionally, it then began doing the opposite damage: dropping
+        # genuine runners that are priced but whose jockey is not yet
+        # declared (routine on Irish cards early in the day). On 4 Aug 2026
+        # it removed three priced runners from Roscommon 18:00, which was
+        # then scored as a 12-runner race against field_size=15 — corrupting
+        # every field-relative score and field-size gate in it.
+        # Now: missing jockey only drops a runner that is ALSO unpriced, so
+        # price stays the authoritative signal and an early card whose market
+        # has not opened (all runners unpriced) still keeps its full field.
         jockey = data.get("jockey", "")
         if not jockey:
-            return None
+            if not NR_PRICE_ONLY:
+                return None
+            if not has_price:
+                return None
 
         # Parse weight from lbs
         weight_lbs = None

@@ -130,6 +130,70 @@ SHORTNAP_MIN_ODDS = float(os.getenv("SHORTNAP_MIN_ODDS", "4.0"))  # fractional
 DAILY_CARD_REPLACE_ENABLED = os.getenv(
     "DAILY_CARD_REPLACE_ENABLED", "true").lower() == "true"
 
+# ---------------------------------------------------------------------------
+# SIGNAL-ALIGNMENT FIXES (added 4 Aug 2026)
+# ---------------------------------------------------------------------------
+# Three places where the deterministic code read a different signal from the
+# one CLAUDE.md specifies. All three found on the 4 Aug 2026 card.
+#
+# (1) GOING_DETAILED_REAL_FIELD -- Option Y's volatility phrase list ("in
+#     places", "watered", "showers", ...) is specified against the API's
+#     `going_detailed`. The Race model never captured that field, so
+#     analyst.py SYNTHESISED one as `going + " " + weather`. On 4 Aug that
+#     produced "Good Showers" for Ffos Las -- a WEATHER FORECAST -- which
+#     matched "showers" and blocked the day's only 75+ NAP (Perfect Nation
+#     76, 13/8) on a track whose real going_detailed read a perfectly stable
+#     "GOOD (GoingStick: 6.0)". It fails the other way too: Catterick's real
+#     going_detailed was "GOOD, Good to firm in places" -- a genuine listed
+#     phrase -- and the gate could not see it. Wrong signal in BOTH
+#     directions since 9 May 2026. Fix: capture and read the real field;
+#     weather no longer feeds the volatility check at all. Empty
+#     going_detailed FAILS OPEN (no demotion) -- never invent a demotion
+#     from absent data.
+#
+# (2) NR_PRICE_ONLY -- the 9 Jul 2026 non-runner fix established that PRICE
+#     is the authoritative withdrawal signal ("what the API strips from a
+#     non-runner is every bookmaker price") and noted the old "no jockey =
+#     non-runner" heuristic "never fired for a single one". That superseded
+#     heuristic was left in `_parse_runner` and now does damage in the
+#     opposite direction: it drops runners that ARE priced but have no
+#     jockey declared yet -- common on Irish cards early in the day. On
+#     4 Aug it removed THREE priced runners (Ataboymiley, John Gun,
+#     Goeasyonme) from Roscommon 18:00, which the bot then scored as a
+#     12-runner race against a true field_size of 15. Those runners were
+#     invisible to every field-relative calculation (top-RPR-in-field,
+#     speed ranks, the C4-and-below ability anchor) and to every field-size
+#     gate. Fix: drop on missing jockey ONLY when the runner is also
+#     unpriced, so a card whose market has not opened still keeps its field.
+#     ⚠ THIS MOVES SCORES -- restoring runners changes field-relative maths.
+#
+# (3) EW_REQUIRE_PLACE_MARKET -- `each_way` was set with no field-size test,
+#     so a 4-runner handicap got an E/W flag no bookmaker will accept
+#     (Russian Rumour, Lingfield 19:18, 4 Aug -- the bot flagged the problem
+#     in its own note but still set the flag). Bookmakers offer no place
+#     market below 5 runners. Mirrors the guard already used by the 16 May
+#     2026 NB-of-day demote path. Strictly subtractive: can only turn E/W
+#     OFF, never on, so it can never increase outlay.
+#
+# (4) CLASS_FLOOR_BLOCKS_UNCLASSED -- `_meets_class_floor` matches substrings
+#     of `race_class`, and Irish cards carry race_class="". Empty string
+#     matched nothing, so every unclassed Irish race PASSED the floor by
+#     default. On 4 Aug that let a 15-runner Roscommon maiden hurdle with
+#     five 150/1 shots into the selections -- it did not clear the floor, it
+#     bypassed it, and it is exactly the form-compressed field the floor
+#     exists to exclude. Fix: missing class is treated as BELOW the floor
+#     unless `pattern` names a Group/Grade/Listed race (Irish pattern racing
+#     still passes). Paul's call, 4 Aug 2026. Cost: the bot stops betting
+#     ordinary Irish racing (Roscommon, Ballinrobe, Sligo, Irish midweek).
+GOING_DETAILED_REAL_FIELD = os.getenv(
+    "GOING_DETAILED_REAL_FIELD", "true").lower() == "true"
+NR_PRICE_ONLY = os.getenv("NR_PRICE_ONLY", "true").lower() == "true"
+EW_REQUIRE_PLACE_MARKET = os.getenv(
+    "EW_REQUIRE_PLACE_MARKET", "true").lower() == "true"
+EW_MIN_RUNNERS_FOR_PLACE = int(os.getenv("EW_MIN_RUNNERS_FOR_PLACE", "5"))
+CLASS_FLOOR_BLOCKS_UNCLASSED = os.getenv(
+    "CLASS_FLOOR_BLOCKS_UNCLASSED", "true").lower() == "true"
+
 # Scheduling (24h format, UK timezone)
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 SCRAPE_TIME = os.getenv("SCRAPE_TIME", "07:00")
