@@ -194,6 +194,26 @@ EW_MIN_RUNNERS_FOR_PLACE = int(os.getenv("EW_MIN_RUNNERS_FOR_PLACE", "5"))
 CLASS_FLOOR_BLOCKS_UNCLASSED = os.getenv(
     "CLASS_FLOOR_BLOCKS_UNCLASSED", "true").lower() == "true"
 
+# GOING_VOLATILITY_SPATIAL_PHRASES (5 Aug 2026) -- Option Y's phrase list mixed
+# two different things. The rule exists because of Hexham 9 May 2026, where the
+# card read Good in the morning and the race ran on Soft: it is about going
+# CHANGING between taking the price and the off. Seven of the nine phrases
+# forecast change ("watered", "rain forecast", "becoming softer", ...). Two --
+# "in places" and "in the back straight" -- describe how going varies ACROSS
+# the track right now, on a surface that is otherwise stable, and are ordinary
+# clerk-of-the-course phrasing. Pontefract 5 Aug read "GOOD TO FIRM, Good in
+# places (GoingStick: 8.4)" -- a firm, settled surface described precisely --
+# and the gate blocked the day's only 75+ NAP (The Good Biscuit 77.2, 3/1) with
+# measured drift of ZERO. It fired on 2 of 4 GB courses that day and on
+# Catterick the day before. Default false = spatial phrases are IGNORED.
+# WARNING: unlike the 4 Aug fixes this is NOT subtractive -- it re-enables NAPs
+# (1pt -> 2pt) and removes forced E/W, so it ADDS money at risk. Paper-trade to
+# 12 Aug 2026; set true to restore the old behaviour in one move. The drift
+# half of Option Y (>= 2 ordinal steps vs the persisted snapshot) is untouched
+# and still catches the Hexham case.
+GOING_VOLATILITY_SPATIAL_PHRASES = os.getenv(
+    "GOING_VOLATILITY_SPATIAL_PHRASES", "false").lower() == "true"
+
 # Scheduling (24h format, UK timezone)
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 SCRAPE_TIME = os.getenv("SCRAPE_TIME", "07:00")

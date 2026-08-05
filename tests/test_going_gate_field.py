@@ -50,11 +50,13 @@ print("1. GOING GATE — real going_detailed, not going + weather")
 chk("Ffos Las real report is NOT volatile",
     _going_volatility_phrases("GOOD (GoingStick: 6.0)") is False)
 
-# The false NEGATIVE: "in places" lives only in the going report, so the old
-# synthetic string ("Good " + weather) could never see it.
-chk("Catterick genuine hedge NOW fires",
+# SUPERSEDED 5 Aug 2026. On 4 Aug this asserted True -- Catterick's "in places"
+# was read as a hedge the old synthetic string could never see. It was never a
+# signal worth seeing: it describes variation ACROSS the track on a stable
+# surface, not a forecast of change. Now spatial => no demote.
+chk("Catterick 'in places' does NOT fire (spatial, not temporal)",
     _going_volatility_phrases(
-        "GOOD, Good to firm in places (GoingStick: 7.2)") is True)
+        "GOOD, Good to firm in places (GoingStick: 7.2)") is False)
 
 chk("empty going_detailed fails OPEN", _going_volatility_phrases("") is False)
 chk("None going_detailed fails OPEN", _going_volatility_phrases(None) is False)
@@ -232,6 +234,54 @@ chk("already win-only stays win-only, no spurious fix",
 out = A._enforce_compliance(copy.deepcopy(sels_4r()), {}, {})
 chk("unresolvable race does NOT clamp (never guess)",
     out["selections"][0]["each_way"] is True)
+
+# --------------------------------------------------------------------------
+print("6. GOING GATE — temporal vs spatial split (5 Aug 2026)")
+# --------------------------------------------------------------------------
+# Pontefract 5 Aug: a firm, settled surface described precisely. Blocked the
+# day's only 75+ NAP (The Good Biscuit 77.2, 3/1) with measured drift of ZERO.
+chk("Pontefract 'Good in places' does NOT fire",
+    _going_volatility_phrases(
+        "GOOD TO FIRM, Good in places (GoingStick: 8.4)") is False)
+chk("Brighton 'Good in places' does NOT fire",
+    _going_volatility_phrases(
+        "GOOD TO FIRM, Good in places (GoingStick: 6.6)") is False)
+chk("'in the back straight' does NOT fire",
+    _going_volatility_phrases("GOOD, soft in the back straight") is False)
+
+# Every temporal phrase must survive -- these forecast CHANGE, which is the
+# whole point of Option Y.
+for phrase in ("watered", "watering", "showers", "rain forecast",
+               "could change", "becoming softer", "drying out"):
+    chk(f"temporal phrase still fires: {phrase}",
+        _going_volatility_phrases(f"GOOD, {phrase} before racing") is True)
+
+# A report can be both. Temporal must still win.
+chk("mixed spatial+temporal still fires",
+    _going_volatility_phrases(
+        "GOOD TO FIRM, Good in places, watered overnight") is True)
+
+# Flag restores the old behaviour in one move (the documented revert).
+A.GOING_VOLATILITY_SPATIAL_PHRASES = True
+try:
+    chk("flag ON restores old behaviour for 'in places'",
+        _going_volatility_phrases(
+            "GOOD TO FIRM, Good in places (GoingStick: 8.4)") is True)
+    chk("flag ON keeps temporal firing",
+        _going_volatility_phrases("GOOD, watered") is True)
+finally:
+    A.GOING_VOLATILITY_SPATIAL_PHRASES = False
+chk("flag restored to default after revert test",
+    _going_volatility_phrases("GOOD TO FIRM, Good in places") is False)
+
+# The drift half is untouched: Hexham 9 May 2026 (Good -> Soft, 2 steps) is
+# what Option Y is actually for, and it must still demote.
+chk("Hexham-style Good->Soft is still a 2-step drift",
+    abs(A._going_step("Good") - A._going_step("Soft")) == 2)
+chk("Good->Heavy is still 3 steps",
+    abs(A._going_step("Good") - A._going_step("Heavy")) == 3)
+chk("1-step drift stays below the threshold",
+    abs(A._going_step("Good") - A._going_step("Good To Soft")) == 1)
 
 print()
 print(f"RESULT: {sum(results)}/{len(results)} passed")

@@ -27,6 +27,7 @@ from config.settings import (
     SHORTNAP_MIN_ODDS,
     GOING_DETAILED_REAL_FIELD, EW_REQUIRE_PLACE_MARKET,
     EW_MIN_RUNNERS_FOR_PLACE, CLASS_FLOOR_BLOCKS_UNCLASSED,
+    GOING_VOLATILITY_SPATIAL_PHRASES,
 )
 from src.scraper import Runner, Race, Meeting
 from src.scorer import RunnerScore, Scorer
@@ -71,7 +72,7 @@ You will receive programmatically scored runners from today's races. The scorer 
 14. C5/C6 SPOTLIGHT RED-FLAG DOWNGRADE (added 8 May 2026): For ANY Class 5 / Class 6 race (AW or turf), if a selection's Spotlight contains any of the following phrases, REDUCE adjusted_score by 5: "doesn't have a great record when fresh", "has plenty to prove", "on dangerous mark", "may need this", "down the list", "well held", "needs to bounce back", "not easy to predict", "out of sorts", "bit to prove". These are analyst hedges in compressed-pool handicaps where the figures look better than the prospects. Validated 8 May 2026: Mark's Choice (Ripon 6:45 C5) Spotlight "doesn't have a great record when fresh" was missed; bot scored 79, finished 6th at 9/2.
 15. C5/C6 SCORE-VS-MARKET GATE (added 8 May 2026 — Option B): In ANY Class 5 / Class 6 race, if a selection has adjusted_score ≥ 80 AND best decimal odds ≥ 9.0 (8/1 or longer), the score is structurally divergent from the market's view. Demote to race SEL stake (0.75pt) — never NAP, never NB-of-day. The framework score scale is not calibrated to win probability in compressed-pool handicaps; an 80+ score at 8/1+ means the rubric is over-counting recyclable-pool form, not finding edge. Pattern: Fairlawn Flyer 22/1 (score 81, Ffos Las 5 May), Star Prospect 88, Precise (3 May, score 104) — all score-market divergence in low-class form-compressed handicaps. Gate enforced by compliance backstop CHECK 6. Scope: Class 5/6 only — at C4 and above the score-market relationship is more reliable.
 16. CLASS FLOOR FOR BOT SELECTIONS (added 9 May 2026 — Option X): The bot now only sends races to Claude judgement that meet a class floor — Group/Listed/Grade always pass; Flat Class 4+ passes; NH Class 3+ passes. Flat Class 5/6/7 and NH Class 4/5 are blocked at the race-ranking step. This is enforced before scoring reaches the LLM, so by the time you see target races they have already passed. Reason: forensic comparison across 7-9 May showed three consecutive bleed days in low-class evening handicaps (AW C5/6 Southwell, turf C4/5 Ripon, NH C5 Hexham) while manual focus on premium class banked +£94 over the same window. The framework's score scale doesn't translate to win probability in compressed-pool fields. If you receive a low-class race in target_races (rare — would only happen via Group/Listed override), apply heightened scepticism.
-17. GOING STABILITY GATE (added 9 May 2026 — Option Y): For each course in target races, the bot compares current going against a persisted snapshot from earlier the same day. If shift ≥ 2 ordinal steps (Good→Soft = 2 steps, Good→Heavy = 3) within 12 hours, ALL selections on that course are demoted: NAP blocked, force E/W. Also, if `going_detailed` contains volatility phrases ("in places", "watered", "watering", "showers", "becoming softer", "drying out"), apply the same demotion. Reason: Hexham 9 May 2026 — cards forecast "Good", races ran on "Soft" — Gardener NAP 5/1 (TS125 earned on Good) finished 5th of 6, Saracen Beau and Snapaudaciaheros both PU. Compliance gate enforces as backstop CHECK 11.
+17. GOING STABILITY GATE (added 9 May 2026 — Option Y): For each course in target races, the bot compares current going against a persisted snapshot from earlier the same day. If shift ≥ 2 ordinal steps (Good→Soft = 2 steps, Good→Heavy = 3) within 12 hours, ALL selections on that course are demoted: NAP blocked, force E/W. Also, if `going_detailed` contains a phrase forecasting the going will CHANGE during the day ("watered", "watering", "showers", "rain forecast", "could change", "becoming softer", "drying out"), apply the same demotion. Do NOT demote on phrases that merely describe how the going varies ACROSS the track right now ("in places", "in the back straight") — that is ordinary clerk-of-the-course phrasing on a stable surface, not a forecast of change (5 Aug 2026: Pontefract "GOOD TO FIRM, Good in places (GoingStick: 8.4)" blocked the day's only 75+ NAP with measured drift of zero). Reason: Hexham 9 May 2026 — cards forecast "Good", races ran on "Soft" — Gardener NAP 5/1 (TS125 earned on Good) finished 5th of 6, Saracen Beau and Snapaudaciaheros both PU. Compliance gate enforces as backstop CHECK 11.
 18. EXCUSED LAST-RUN OVERRIDE (added 21 May 2026 — positive mirror of Rule 2): The deterministic Form score reads finishing positions LITERALLY — it CANNOT see when a poor most-recent run was a non-recurring fluke, so it can suppress a genuinely strong horse below the NAP line. When the Spotlight EXPLICITLY excuses the SINGLE most-recent run with a specific, race-bound reason — e.g. "drawn widest"/unfavourable draw, "badly hampered"/"met trouble"/"short of room", "never travelled on unsuitable ground", "missed the break"/"slowly away", "too keen up front", "needed the run after a long break", "race fell apart"/"wrong tactics"/"no pace to aim at", "trip too sharp on the day" — do NOT let that one run hold the horse down. Re-read its true level from its OTHER recent form + course/distance/class profile and lift adjusted_score to reflect it; the result MAY cross the 75 NAP line if the rest of the evidence supports it. STRICT GUARDS — all three required: (i) the excuse must be SPECIFIC and PRESENT in the Spotlight, never inferred from a vague "can do better"/"remains capable"; (ii) only the SINGLE most-recent run can be excused — if 2+ of the last few runs are poor, this rule does NOT apply even if one is excused; (iii) SCOPE: Flat Class 4+ / NH Class 3+ / Group/Listed/Grade ONLY — NEVER apply in Class 5/6, where the C5/6 calibration (Rules 14-15) and the score-vs-market gate own the compressed-pool territory and this override must not re-inflate scores. When you apply it, say so in reasoning ("last run excused: <reason>, true level is N"). Validated 21 May 2026: Bellarchi (Musselburgh 4:25, C3 hcap) — last run a Chester defeat the Spotlight excused (drawn widest) dragged deterministic Form to 9.1/22 and base to 72 (below NAP line); with that run excused her 4-time C&D record + class made her a clear 85 NAP. WON at 9/4 as part of a 3-from-3 card.
 
 ## v4.1 DROPPED RULES (do NOT apply, do NOT cite in compliance_log)
@@ -132,7 +133,7 @@ Before returning your JSON, verify EACH selection against these 7 checks. Do NOT
    (b) No-NAP-on-favourite (Rule B): if the NAP candidate is also the market favourite at sub-4/1 (decimal ≤ 4.0) — set nap_index to -1 (flat stakes day). Top scorer = market consensus at sub-4/1 in compressed C5/6 form has zero edge over market. NAP at 4/1+ allowed only with explicit market-divergence note.
    Compliance gate enforces both as backstop. Rules do NOT apply at Group/Listed/big-handicap level.
 6. C5/C6 SCORE-VS-MARKET GATE (added 8 May 2026 — Option B): For each selection in ANY Class 5 / Class 6 race (AW or turf), if adjusted_score ≥ 80 AND best decimal odds ≥ 9.0 (8/1 or longer), demote to race SEL stake (no NAP, no NB-of-day). The score-vs-market divergence is too wide to trust — the framework over-counts recyclable-pool form in C5/C6. Compliance gate enforces as backstop.
-7. GOING STABILITY (added 9 May 2026 — Option Y): For each selection's course, check going against the snapshot from earlier today (compliance gate handles the snapshot lookup). If going has shifted by ≥ 2 ordinal steps within 12h (Good→Soft = 2; Good→Heavy = 3), set each_way to true and remove NAP — picks on this course are flat-stakes-only. Also flag races where `going_detailed` contains volatility phrases ("in places", "watered", "showers", "becoming softer", "drying out"). Validated by Hexham 9 May 2026 going-shift bleed.
+7. GOING STABILITY (added 9 May 2026 — Option Y): For each selection's course, check going against the snapshot from earlier today (compliance gate handles the snapshot lookup). If going has shifted by ≥ 2 ordinal steps within 12h (Good→Soft = 2; Good→Heavy = 3), set each_way to true and remove NAP — picks on this course are flat-stakes-only. Also flag races where `going_detailed` forecasts the going CHANGING during the day ("watered", "watering", "showers", "rain forecast", "could change", "becoming softer", "drying out"). Do NOT flag on present-tense spatial description ("in places", "in the back straight") — a stable surface described precisely is not volatile. Validated by Hexham 9 May 2026 going-shift bleed.
 
 ## OUTPUT FORMAT
 
@@ -515,19 +516,34 @@ def _going_step(going: str) -> int:
     return 3
 
 
+# Phrases that forecast the going CHANGING between taking the price and the
+# off. This is what Option Y is for -- Hexham 9 May 2026 read Good overnight
+# and ran on Soft.
+_GOING_TEMPORAL_PHRASES = [
+    "watered", "watering", "could change", "rain forecast", "showers",
+    "becoming softer", "drying out",
+]
+
+# Phrases that describe how the going varies ACROSS the track right now, on a
+# surface that is otherwise stable. Ordinary clerk-of-the-course phrasing, NOT
+# a forecast of change -- see GOING_VOLATILITY_SPATIAL_PHRASES in settings for
+# the Pontefract 5 Aug 2026 case that removed them from the default list.
+_GOING_SPATIAL_PHRASES = ["in places", "in the back straight"]
+
+
 def _going_volatility_phrases(going_detailed: str) -> bool:
-    """True if going_detailed text contains volatility hedge phrases.
-    These suggest the going may shift during the day (rain, watering,
-    patches). Used to soft-flag picks at run time even before any drift
-    snapshot comparison."""
+    """True if going_detailed forecasts the going SHIFTING during the day.
+
+    Only temporal phrases count by default. Spatial phrases ("in places")
+    describe present-tense variation across the track and are re-included
+    only when GOING_VOLATILITY_SPATIAL_PHRASES is set.
+    """
     if not going_detailed:
         return False
     g = going_detailed.lower()
-    phrases = [
-        "in places", "in the back straight", "watered",
-        "watering", "could change", "rain forecast", "showers",
-        "becoming softer", "drying out",
-    ]
+    phrases = list(_GOING_TEMPORAL_PHRASES)
+    if GOING_VOLATILITY_SPATIAL_PHRASES:
+        phrases += _GOING_SPATIAL_PHRASES
     return any(p in g for p in phrases)
 
 
@@ -1370,10 +1386,11 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
     # course on the same date. If shift ≥ 2 ordinal steps within 12h
     # (Good→Soft = 2 steps; Good→Heavy = 3), demote selections on this
     # course: no NAP, force E/W, log it. Also flag races where the
-    # going_detailed text contains volatility phrases ("in places",
-    # "watered", "showers", etc.) — soft demote at run time even before
-    # any drift snapshot exists. Triggered by Hexham 9 May 2026: cards
-    # forecast "Good", races ran on Soft, all bot picks failed.
+    # going_detailed text forecasts CHANGE ("watered", "showers", etc.) —
+    # soft demote at run time even before any drift snapshot exists.
+    # Spatial description ("in places") does NOT count; see
+    # GOING_VOLATILITY_SPATIAL_PHRASES. Triggered by Hexham 9 May 2026:
+    # cards forecast "Good", races ran on Soft, all bot picks failed.
     drift_courses_done = set()
     for i, sel in enumerate(sels):
         meta = _resolve_race_meta(sel, race_meta_lookup)
