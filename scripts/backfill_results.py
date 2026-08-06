@@ -20,6 +20,18 @@ from src.database import settle, place_terms  # noqa: E402
 
 DB = sys.argv[1] if len(sys.argv) > 1 else "hist.db"
 APPLY = "--apply" in sys.argv
+# --missing (added 6 Aug 2026): settle selections that have NO results row at
+# all, instead of re-settling ones that do. Same matching, same calculator --
+# only the SELECT and the write path differ (INSERT-upsert, not UPDATE-by-rid).
+# 523 bot picks were never settled because the nightly settler only started
+# running in June: coverage was Mar 0%, Apr 0%, May 18%, Jun 89%, Jul 95%.
+# That gap is what made the settled subset read ~+4% against an authoritative
+# ~-2.7%: the bias is WHEN settlement began, not which bets got settled
+# (win rates were 17.6% settled vs 18.8% unsettled).
+MISSING = "--missing" in sys.argv
+# --mark-nr: settle day-wide-absent horses as non-runners (stake returned,
+# pnl 0) instead of leaving them with no results row at all.
+MARK_NR = "--mark-nr" in sys.argv
 CACHE = Path("apicache")
 CACHE.mkdir(exist_ok=True)
 
@@ -100,20 +112,32 @@ def to12(t):
 
 conn = sqlite3.connect(DB)
 conn.row_factory = sqlite3.Row
-rows = conn.execute(
-    """SELECT s.id, date(s.created_at) d, s.race_time, s.race_name, s.horse,
-              s.each_way, s.stake_pts, s.odds_guide, s.selection_type,
-              r.id rid, r.finish_position, r.result, r.sp_odds, r.pnl_pts
-       FROM results r JOIN selections s ON s.id = r.selection_id
-       WHERE r.selection_id < 707
-       ORDER BY s.id"""
-).fetchall()
+if MISSING:
+    rows = conn.execute(
+        """SELECT s.id, date(s.created_at) d, s.race_time, s.race_name, s.horse,
+                  s.each_way, s.stake_pts, s.odds_guide, s.selection_type,
+                  NULL rid, NULL finish_position, NULL result, NULL sp_odds,
+                  0.0 pnl_pts
+           FROM selections s LEFT JOIN results r ON r.selection_id = s.id
+           WHERE r.id IS NULL AND s.superseded_at IS NULL
+           ORDER BY s.id"""
+    ).fetchall()
+else:
+    rows = conn.execute(
+        """SELECT s.id, date(s.created_at) d, s.race_time, s.race_name, s.horse,
+                  s.each_way, s.stake_pts, s.odds_guide, s.selection_type,
+                  r.id rid, r.finish_position, r.result, r.sp_odds, r.pnl_pts
+           FROM results r JOIN selections s ON s.id = r.selection_id
+           WHERE r.selection_id < 707
+           ORDER BY s.id"""
+    ).fetchall()
 
 by_date = defaultdict(list)
 for r in rows:
     by_date[r["d"]].append(r)
 
 updates, unmatched, changed = [], [], []
+marked_nr = []
 relocated, voided, seen_bets = [], [], {}
 old_total = new_total = 0.0
 
@@ -152,9 +176,29 @@ for d in sorted(by_date):
                     (r, f"{key[0]} {key[1]}",
                      f"{norm_course(rc.get('course'))} {rc.get('off')}"))
             else:
-                unmatched.append(
-                    (r, "race not found" if idx.get(key) is None
-                     else "horse not in race", key))
+                why = ("race not found" if idx.get(key) is None
+                       else "horse not in race")
+                unmatched.append((r, why, key))
+                if MISSING and MARK_NR:
+                    # The horse is absent from EVERY race in the day's results
+                    # feed (the fallback above already searched the whole card).
+                    # That is the signature of a non-runner -- verified by hand
+                    # on 6 Aug 2026 against Kylenoe Dancer (5 May, documented NR
+                    # in CLAUDE.md), Jonbon (25 Apr) and Star Prospect (4 May),
+                    # all absent day-wide -- and of an abandoned meeting
+                    # (Chelmsford 2 Apr is missing from the feed entirely).
+                    # settle() with finish_position=None returns the stake and
+                    # books pnl 0, so this closes the coverage gap WITHOUT
+                    # moving ROI either way: a returned stake is excluded from
+                    # the denominator, not counted as a losing bet.
+                    nr = settle(stake_pts=r["stake_pts"],
+                                each_way=bool(r["each_way"]),
+                                finish_position=None, sp_odds="",
+                                num_runners=0, is_handicap=False,
+                                morning_odds=r["odds_guide"] or "", bog=True)
+                    updates.append((r["rid"], r["id"], None, nr["result"],
+                                    "", nr["returns_pts"], nr["pnl_pts"]))
+                    marked_nr.append((r, why))
                 continue
 
         n = len(rc.get("runners", []))
@@ -179,28 +223,29 @@ for d in sorted(by_date):
         dkey = (rc.get("race_id") or (key[0], rc.get("off")), target)
         if dkey in seen_bets:
             voided.append((r, seen_bets[dkey]))
-            old_total += r["pnl_pts"]
-            updates.append((r["rid"], None, "void", "-", 0.0, 0.0))
+            old_total += r["pnl_pts"] or 0.0
+            updates.append((r["rid"], r["id"], None, "void", "-", 0.0, 0.0))
             continue
         seen_bets[dkey] = r["id"]
 
-        old_total += r["pnl_pts"]
+        old_total += r["pnl_pts"] or 0.0
         new_total += s["pnl_pts"]
-        delta = s["pnl_pts"] - r["pnl_pts"]
-        updates.append((r["rid"], pos if pos_raw.isdigit() else None,
+        delta = s["pnl_pts"] - (r["pnl_pts"] or 0.0)
+        updates.append((r["rid"], r["id"], pos if pos_raw.isdigit() else None,
                         s["result"], sp, s["returns_pts"], s["pnl_pts"]))
-        if abs(delta) > 0.005 or s["result"] != r["result"]:
+        if abs(delta) > 0.005 or (not MISSING and s["result"] != r["result"]):
             changed.append((r, s, delta, n, is_hcap, pos_raw))
 
 print(f"rows examined : {len(rows)}")
 print(f"matched       : {len(updates)}")
-print(f"UNMATCHED     : {len(unmatched)}")
+print(f"UNMATCHED     : {len(unmatched)}"
+      + (f" (of which {len(marked_nr)} settled as NON-RUNNER)" if marked_nr else ""))
 print(f"changed       : {len(changed)}")
 print()
 print(f"old total pnl : {old_total:+.3f} pts")
 print(f"new total pnl : {new_total:+.3f} pts")
 print(f"DELTA         : {new_total - old_total:+.3f} pts")
-void_effect = -sum(r["pnl_pts"] for r, _ in voided)
+void_effect = -sum((r["pnl_pts"] or 0.0) for r, _ in voided)
 print(f"  of which: voided duplicates {void_effect:+.3f} | re-settlement "
       f"{(new_total - old_total) - void_effect:+.3f}")
 print()
@@ -217,7 +262,14 @@ if voided:
         print(f"  id{r['id']:4d} {r['d']} {r['horse'][:22]:22s} {r['selection_type']:10s} duplicate of id{keeper} | was {r['pnl_pts']:+.3f}")
     print()
 
-if unmatched:
+if marked_nr:
+    print("=== SETTLED AS NON-RUNNER (absent from the whole day's results) ===")
+    for r, why in marked_nr:
+        print(f"  id{r['id']:4d} {r['d']} {r['horse'][:22]:22s} {r['selection_type']:10s} "
+              f"stake {r['stake_pts']:.2f} -> nr, stake returned, pnl 0 | {why}")
+    print()
+
+if unmatched and not MARK_NR:
     print("=== UNMATCHED (left untouched) ===")
     for r, why, key in unmatched:
         print(f"  id{r['id']:4d} {r['d']} {r['race_time']:>5s} {r['horse'][:22]:22s} {why} {key}")
@@ -228,8 +280,8 @@ for r, s, delta, n, hc, pos_raw in sorted(changed, key=lambda x: -abs(x[2]))[:25
     print(f"  id{r['id']:4d} {r['horse'][:20]:20s} {r['selection_type']:10s} "
           f"{'EW' if r['each_way'] else 'W '} stake{r['stake_pts']:4.1f} "
           f"pos{pos_raw:>3s}/{n:2d}{'H' if hc else ' '} "
-          f"{r['result']:6s}->{s['result']:6s} "
-          f"{r['pnl_pts']:+7.3f} -> {s['pnl_pts']:+7.3f}  ({delta:+.3f})")
+          f"{(r['result'] or '-'):6s}->{s['result']:6s} "
+          f"{(r['pnl_pts'] or 0.0):+7.3f} -> {s['pnl_pts']:+7.3f}  ({delta:+.3f})")
 
 wins = [c for c in changed if c[1]["result"] == "won"]
 print()
@@ -239,7 +291,7 @@ print(f"winners re-settled: {len(wins)}, total delta on winners: "
 if "--sql" in sys.argv:
     with open("backfill.sql", "w") as fh:
         fh.write("BEGIN;\n")
-        for rid, pos, res, sp, ret, pnl in updates:
+        for rid, sel_id, pos, res, sp, ret, pnl in updates:
             posv = "NULL" if pos is None else str(pos)
             fh.write(
                 f"UPDATE results SET finish_position={posv}, result='{res}', "
@@ -249,12 +301,25 @@ if "--sql" in sys.argv:
     print(f"\nwrote backfill.sql ({len(updates)} updates)")
 
 if APPLY:
-    for rid, pos, res, sp, ret, pnl in updates:
-        conn.execute(
-            "UPDATE results SET finish_position=?, result=?, sp_odds=?, "
-            "returns_pts=?, pnl_pts=? WHERE id=?",
-            (pos, res, sp, ret, pnl, rid),
-        )
+    for rid, sel_id, pos, res, sp, ret, pnl in updates:
+        if MISSING:
+            # Upsert on selection_id -- same guarantee as database.save_result,
+            # so a re-run corrects rather than duplicating.
+            conn.execute(
+                "INSERT INTO results (selection_id, finish_position, result, "
+                "sp_odds, returns_pts, pnl_pts) VALUES (?,?,?,?,?,?) "
+                "ON CONFLICT(selection_id) DO UPDATE SET "
+                "finish_position=excluded.finish_position, "
+                "result=excluded.result, sp_odds=excluded.sp_odds, "
+                "returns_pts=excluded.returns_pts, pnl_pts=excluded.pnl_pts",
+                (sel_id, pos, res, sp, ret, pnl),
+            )
+        else:
+            conn.execute(
+                "UPDATE results SET finish_position=?, result=?, sp_odds=?, "
+                "returns_pts=?, pnl_pts=? WHERE id=?",
+                (pos, res, sp, ret, pnl, rid),
+            )
     conn.commit()
     print(f"\nAPPLIED {len(updates)} updates to {DB}")
 else:
