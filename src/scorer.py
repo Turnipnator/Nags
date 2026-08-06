@@ -11,8 +11,30 @@ from dataclasses import dataclass
 from typing import Optional
 
 from src.scraper import Runner, Race
+from config.settings import (
+    T14_MIN_RUNS_ENABLED, T14_MIN_RUNS, T14_MIN_RUNS_APPLY_COLD,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _t14_trustworthy(runner: Runner) -> bool:
+    """Is this runner's trainer_14d_pct backed by enough runs to be usable?
+
+    CLAUDE.md factor 21: "Minimum 5 runs in 14 days for the bonus." A 67%
+    strike rate off 3 runs carries no information; treating it as a hot yard
+    inflated the 6 Aug 2026 NAP by 5.5 points across two scoring sites.
+
+    FAILS OPEN on a missing/unparseable runs count -- absence of a sample size
+    is not evidence of a small one, and preserving current behaviour there
+    keeps this change strictly about the cases we can actually measure.
+    """
+    if not T14_MIN_RUNS_ENABLED:
+        return True
+    runs = runner.trainer_14d_runs
+    if runs is None:
+        return True
+    return runs >= T14_MIN_RUNS
 
 
 @dataclass
@@ -779,23 +801,46 @@ class Scorer:
 
         top_trainers = TOP_NH_TRAINERS if is_nh else TOP_FLAT_TRAINERS
 
-        # Use 14-day form if available (more current than static lists)
-        if runner.trainer_14d_pct is not None:
-            pct = runner.trainer_14d_pct
-            if pct >= 25:
-                return 5.0
-            elif pct >= 15:
-                return 4.0
-            elif pct >= 10:
-                return 3.0
-            elif pct >= 5:
-                return 2.5
-            else:
-                return 1.5
+        # Use 14-day form if available (more current than static lists).
+        # Gated on sample size (CLAUDE.md factor 21, min 5 runs) -- below that
+        # the percentage is noise, so fall through to the static list, which is
+        # exactly what we'd use if the 14-day data were absent entirely.
+        if runner.trainer_14d_pct is not None and not _t14_trustworthy(runner):
+            fallback = 5.0 if trainer_lower in top_trainers else 2.5
+            if not T14_MIN_RUNS_APPLY_COLD:
+                # Cold half held back => this site must be strictly subtractive
+                # too, or a 0%-off-1-run yard RISES 1.5 -> 2.5 and we have
+                # quietly shipped an additive change. Clamp so the fallback can
+                # only ever lower the score; APPLY_COLD lifts the clamp.
+                fallback = min(fallback, self._score_trainer_from_t14(
+                    runner.trainer_14d_pct))
+            logger.info(
+                "T14 SMALL SAMPLE: %s (%s) — trainer score %s off %s run(s) "
+                "=> %.1f (min %s runs)",
+                runner.name, runner.trainer, f"{runner.trainer_14d_pct}%",
+                runner.trainer_14d_runs, fallback, T14_MIN_RUNS,
+            )
+            return fallback
+        elif runner.trainer_14d_pct is not None:
+            return self._score_trainer_from_t14(runner.trainer_14d_pct)
 
         if trainer_lower in top_trainers:
             return 5.0
         return 2.5
+
+    @staticmethod
+    def _score_trainer_from_t14(pct: int) -> float:
+        """The 14-day strike-rate ladder, factored out so the small-sample
+        clamp in _score_trainer measures against the same numbers."""
+        if pct >= 25:
+            return 5.0
+        elif pct >= 15:
+            return 4.0
+        elif pct >= 10:
+            return 3.0
+        elif pct >= 5:
+            return 2.5
+        return 1.5
 
     def _score_edges(self, runner: Runner, race: Race, score: RunnerScore) -> float:
         """Calculate edge bonuses — graded per CLAUDE.md framework."""
@@ -1032,20 +1077,35 @@ class Scorer:
                         )
                         intent_signals += 1
 
-        # Hot stable bonus (graduated)
+        # Hot stable bonus (graduated). Gated on sample size — CLAUDE.md
+        # factor 21 requires 5+ runs in 14 days, and until 6 Aug 2026 the runs
+        # count was never stored so "2 from 3 = 67%" bought a +3 (Sparan Nua,
+        # Leopardstown Desmond Stakes, NAP'd off it). The cold -1 has its own
+        # flag and is OFF by default: killing a phantom bonus is subtractive,
+        # killing a phantom penalty is additive.
         if runner.trainer_14d_pct is not None:
-            # Need to check runs count too — but we only have percent in Runner
-            # The API provides runs in trainer_14_days dict but we store only pct
             pct = runner.trainer_14d_pct
-            if pct >= 30:
+            trustworthy = _t14_trustworthy(runner)
+            # Only announce it when it actually suppresses something: a cold
+            # yard still gets its -1 while T14_MIN_RUNS_APPLY_COLD is off.
+            if not trustworthy and (
+                    pct >= 20 or (0 <= pct < 5 and T14_MIN_RUNS_APPLY_COLD)):
+                logger.info(
+                    "T14 SMALL SAMPLE: %s (%s) — edge block ignoring %s%% "
+                    "off %s run(s), min %s",
+                    runner.name, runner.trainer, pct,
+                    runner.trainer_14d_runs, T14_MIN_RUNS,
+                )
+            if pct >= 30 and trustworthy:
                 bonus += 3.0
                 details.append(f"Hot stable ({pct}% 14d) +3")
                 intent_signals += 1
-            elif pct >= 20:
+            elif pct >= 20 and trustworthy:
                 bonus += 2.0
                 details.append(f"Hot stable ({pct}% 14d) +2")
                 intent_signals += 1
-            elif pct < 5 and pct >= 0:
+            elif pct < 5 and pct >= 0 and (
+                    trustworthy or not T14_MIN_RUNS_APPLY_COLD):
                 bonus -= 1.0
                 details.append(f"Cold stable ({pct}% 14d) -1")
 

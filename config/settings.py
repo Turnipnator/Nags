@@ -214,6 +214,48 @@ CLASS_FLOOR_BLOCKS_UNCLASSED = os.getenv(
 GOING_VOLATILITY_SPATIAL_PHRASES = os.getenv(
     "GOING_VOLATILITY_SPATIAL_PHRASES", "false").lower() == "true"
 
+# T14_MIN_RUNS (6 Aug 2026) -- CLAUDE.md factor 21 has ALWAYS said "Small
+# samples distort (1 from 2 = 50% but meaningless). Minimum 5 runs in 14 days
+# for the bonus." The code never implemented it: scraper.py read the API's
+# trainer_14_days dict and kept ONLY `percent`, discarding `runs` and `wins`,
+# and scorer.py had a comment openly admitting the gap. TWO scoring sites were
+# affected, not one:
+#   (a) _score_trainer  -- worth 5 of 100 (5.0 at pct >= 25 ... 1.5 at pct < 5)
+#   (b) _score_edges    -- hot-stable +3 / +2 and cold-stable -1
+# Caught auditing the bot's own NAP on 6 Aug 2026: Leopardstown 6:00 Desmond
+# Stakes (Group 3), Sparan Nua 11/8 scored 75.6 and was NAP'd at 2pts, where
+# the "Hot stable (67% 14d)" was J S Bolger 2 WINS FROM 3 RUNS. With the
+# mandated guard she scores 70.1 (-5.5: 5.0 -> 2.5 at site (a), +3 removed at
+# site (b)) -- below the 75 NAP line AND no longer top scorer in her race, so
+# the correct output was a no-NAP flat-stakes day.
+#
+# Below the threshold each site falls back to the behaviour it would use with
+# no 14-day data at all -- site (a) to the static TOP_*_TRAINERS list (the
+# code's own comment calls the 14-day block "more current than static lists",
+# so when it is not trustworthy the static list is the right fallback), site
+# (b) to no bonus. Missing/unparseable `runs` FAILS OPEN (current behaviour
+# preserved): absence of a count is not evidence of a small sample, and on the
+# 6 Aug card all 400 runners carried both keys, so that branch is theoretical.
+#
+# T14_MIN_RUNS_APPLY_COLD gates the -1 cold-stable penalty separately and is
+# OFF by default. Suppressing phantom HOT bonuses is subtractive (scores only
+# fall, bets can only be removed) -- the kind of change that has actually
+# worked here. Suppressing phantom COLD penalties is additive. Measured blast
+# radius on the pinned 6 Aug card (373 runners / 46 races): hot half moves 12
+# runners, ALL down, and changes the top scorer in 2 races (the Desmond, plus
+# one the class floor already blocks); cold half moves 66 runners UP and its
+# three top-scorer changes are ALL in unclassed Irish races the class floor
+# already blocks. Zero horses lose a compound-signal +5 either way.
+#
+# Paper-trade 7 days to 13 Aug 2026: log every "T14 SMALL SAMPLE" suppression
+# and whether the suppressed horse won. Failure trigger -- 3+ suppressed
+# horses win where they would otherwise have been selections => lower
+# T14_MIN_RUNS to 3 before reverting. Revert: T14_MIN_RUNS_ENABLED=false.
+T14_MIN_RUNS_ENABLED = os.getenv("T14_MIN_RUNS_ENABLED", "true").lower() == "true"
+T14_MIN_RUNS = int(os.getenv("T14_MIN_RUNS", "5"))
+T14_MIN_RUNS_APPLY_COLD = os.getenv(
+    "T14_MIN_RUNS_APPLY_COLD", "false").lower() == "true"
+
 # Scheduling (24h format, UK timezone)
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 SCRAPE_TIME = os.getenv("SCRAPE_TIME", "07:00")

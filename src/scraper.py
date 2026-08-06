@@ -110,6 +110,11 @@ class Runner:
     jockey: Optional[str] = None
     trainer: Optional[str] = None
     trainer_14d_pct: Optional[int] = None
+    # Sample size behind trainer_14d_pct. Added 6 Aug 2026 -- CLAUDE.md factor
+    # 21 mandates "minimum 5 runs in 14 days for the bonus" but the runs count
+    # was discarded here, so "2 wins from 3 = 67%" scored like "17 from 60 =
+    # 28%" at both scoring sites. See scorer._t14_trustworthy.
+    trainer_14d_runs: Optional[int] = None
     form: Optional[str] = None
     days_since_run: Optional[int] = None
     draw: Optional[int] = None
@@ -796,6 +801,7 @@ class Scraper:
         # Parse trainer 14-day form
         t14 = data.get("trainer_14_days", {})
         trainer_14d_pct = self._safe_int(t14.get("percent"))
+        trainer_14d_runs = self._safe_int(t14.get("runs"))
 
         # Parse days since run
         days_since = self._safe_int(data.get("last_run"))
@@ -856,6 +862,7 @@ class Scraper:
             jockey=jockey,
             trainer=data.get("trainer", ""),
             trainer_14d_pct=trainer_14d_pct,
+            trainer_14d_runs=trainer_14d_runs,
             form=data.get("form", ""),
             days_since_run=days_since,
             draw=draw,
