@@ -875,7 +875,7 @@ measured C5/6 × floor-pass = **0 across 209 real races**. Six rules written on 
 were superseded by the floor **one day later** and sat unreachable for three months:
 Drift 1 (course-bonus decay), Drift 2 (class-score cap), Drift 3 (Flat long-absence
 penalty), Drift 4 (Spotlight red-flag downgrade), CHECK 8 (AW weight-rise blocker),
-CHECK 9 (AW no-NAP-on-favourite). Removed in commit `c56ret` — recoverable from git.
+CHECK 9 (AW no-NAP-on-favourite). Removed in commit `cb40f67` — recoverable from git.
 CHECK 8 and CHECK 9 are left as **numbering gaps, deliberately not reused**, because
 CHECK numbers are cross-referenced throughout this file.
 **CHECK 10 was NOT retired** — the 30 Jun 2026 generalisation made it fire at all
