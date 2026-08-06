@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.paulturner.nags-backup-pull</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/paulturner/horse-racing-bot/scripts/pull-vps-backups.sh</string>
+  </array>
+
+  <!-- 09:00 local, comfortably after the VPS job at 02:00 CEST. launchd runs a
+       missed occurrence when the Mac next wakes, so a closed lid only delays
+       the pull, it does not skip a day. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>9</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+
+  <!-- Off: this must not fire on every login, only on the schedule. -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/paulturner/Backups/nags-vps/pull.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/paulturner/Backups/nags-vps/pull.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+</dict>
+</plist>
