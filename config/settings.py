@@ -256,6 +256,59 @@ T14_MIN_RUNS = int(os.getenv("T14_MIN_RUNS", "5"))
 T14_MIN_RUNS_APPLY_COLD = os.getenv(
     "T14_MIN_RUNS_APPLY_COLD", "false").lower() == "true"
 
+# EDGE-BLOCK RUBRIC ALIGNMENT (6 Aug 2026) -- three bonuses that _score_edges
+# awarded and CLAUDE.md's edge-factor list does not contain. Found by a
+# line-by-line audit of the block against the rubric, prompted by the T14
+# min-runs bug: every gate in CLAUDE.md checks scores, prices and class, and
+# NONE of them can see how a score was built. Measured on 1896 runners across
+# all GB/IRE cards 1-6 Aug 2026. Defaults are OFF because off is the corrected
+# state; set any to "true" to restore the old behaviour independently.
+#
+# (1) SPEED_DOMINANCE_BONUS_ENABLED -- a field-relative lead on max(RPR, TS)
+#     paid +5 (>=20 clear), +3 (>=10) or +1 (>=5). No such edge factor exists
+#     in CLAUDE.md; the only speed guidance beyond the 8-point Speed Figures
+#     factor is factor 6's TOPSPEED LEADER RULE, which is narrative ("deserves
+#     serious selection consideration") and assigns no points. It also
+#     DOUBLE-COUNTS _score_class, which already scores rating-vs-field, and it
+#     inflates exactly the best-figure favourites that sit in the measured F3
+#     short-premium-NAP losing cell. 47 firings / 1896 (2.5%), 9 of them +3 or
+#     +5. The lead is still computed and reported at ZERO points so the LLM
+#     judgement layer can still act on it where the rubric intends.
+#
+# (2) UNKNOWN_HEADGEAR_BONUS_ENABLED -- the first-time-headgear ladder's else
+#     branch paid +2 for any code it did not recognise. CLAUDE.md factor 15
+#     grades four types only (blinkers, visor, cheekpieces, tongue-tie); hood
+#     and eyeshield are not in it. 11 firings in 6 days, every one a hood.
+#     Note kept at zero points, which also logs which codes actually appear.
+#
+# (3) OR_ABOVE_FIELD_INTENT_SIGNAL -- labelled "class drop detection", it
+#     awarded a silent intent signal for being rated 8lb+ ABOVE the field
+#     average, i.e. for being the best-handicapped horse: the OPPOSITE of a
+#     class drop, and in a handicap just a description of the top weight. The
+#     genuine rubric item (factor 20 signal 3) is already counted by the
+#     class-drop kicker. Numerically a no-op today -- compound has NEVER
+#     reached 3 signals (0 firings in 1896 runners) -- so this exists to stop
+#     a future spurious +5. NO replacement signals added: inventing intent
+#     signals is the additive-edge trap, refuted five times.
+#
+# Blast radius (1-6 Aug, 1896 runners / 209 races): 58 runners moved (3.1%),
+# ALL DOWN (-1.0 x38, -2.0 x11, -3.0 x7, -5.0 x2); top scorer changed in 3 of
+# 209 races, two unclassed Irish (class-floor blocked) and one a Class 4 topping
+# out at 53.6 (far below the 70+ betable gate) -- so NO race that would reach
+# LLM judgement changed. Of 28 real logged picks in the window, ONE moved, by
+# -1.0. This is hygiene, not edge: it is not expected to move ROI.
+#
+# Paper-trade 7 days to 13 Aug 2026 (same window as the T14 guard). Failure
+# trigger -- 3+ races where the horse that lost SPEED DOMINANCE points wins and
+# our replacement top scorer loses => SPEED_DOMINANCE_BONUS_ENABLED=true and
+# reopen the question of writing it into the rubric properly.
+SPEED_DOMINANCE_BONUS_ENABLED = os.getenv(
+    "SPEED_DOMINANCE_BONUS_ENABLED", "false").lower() == "true"
+UNKNOWN_HEADGEAR_BONUS_ENABLED = os.getenv(
+    "UNKNOWN_HEADGEAR_BONUS_ENABLED", "false").lower() == "true"
+OR_ABOVE_FIELD_INTENT_SIGNAL = os.getenv(
+    "OR_ABOVE_FIELD_INTENT_SIGNAL", "false").lower() == "true"
+
 # Scheduling (24h format, UK timezone)
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 SCRAPE_TIME = os.getenv("SCRAPE_TIME", "07:00")

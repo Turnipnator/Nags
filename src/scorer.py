@@ -13,6 +13,8 @@ from typing import Optional
 from src.scraper import Runner, Race
 from config.settings import (
     T14_MIN_RUNS_ENABLED, T14_MIN_RUNS, T14_MIN_RUNS_APPLY_COLD,
+    SPEED_DOMINANCE_BONUS_ENABLED, UNKNOWN_HEADGEAR_BONUS_ENABLED,
+    OR_ABOVE_FIELD_INTENT_SIGNAL,
 )
 
 logger = logging.getLogger(__name__)
@@ -907,9 +909,20 @@ class Scorer:
             elif "t" in hg:  # Tongue-tie
                 bonus += 1.0
                 details.append("1st-time tongue-tie +1")
-            else:
+            elif UNKNOWN_HEADGEAR_BONUS_ENABLED:
                 bonus += 2.0  # Unknown headgear type
                 details.append(f"1st-time headgear ({hg}) +2")
+            else:
+                # CLAUDE.md factor 15 grades FOUR types: blinkers, visor,
+                # cheekpieces, tongue-tie. Anything else -- hood ("h"),
+                # eyeshield ("e") -- has no graded value in the rubric, and
+                # this else branch was inventing +2 for it (11 firings in the
+                # 1-6 Aug 2026 audit window, all hoods). Note kept at zero
+                # points so the LLM still sees the change and we keep a record
+                # of which codes actually turn up.
+                details.append(
+                    f"1st-time headgear ({hg}) — not graded in rubric, no bonus"
+                )
             intent_signals += 1
 
         # Blinkers REMOVED detection (would need previous headgear data)
@@ -1160,16 +1173,40 @@ class Scorer:
                     f"⚠️ Flat C5/C6 absence {runner.days_since_run}d (>90) -3"
                 )
 
-        # Class drop detection (intent signal)
-        if runner.official_rating:
+        # "Class drop detection (intent signal)" -- IT WAS NEVER A CLASS DROP.
+        # This awards an intent signal when a runner is rated 8lb+ ABOVE the
+        # field average, i.e. for being the best-handicapped horse in the race
+        # -- the OPPOSITE of dropping in class, and in a handicap simply a
+        # description of the top weight. CLAUDE.md factor 20's intent signal 3
+        # is "class drop after creditable effort in higher company", which is
+        # already counted by the class-drop kicker above (it increments
+        # intent_signals when it fires), so this was a second, wrong
+        # implementation of the same rubric item. It also fired SILENTLY, with
+        # no line in the details, and was one of two signals on 19 runners in
+        # the 1-6 Aug 2026 audit window. Removing it is numerically a no-op
+        # today -- compound has never reached 3 signals (0 firings in 1896
+        # runners) -- so this exists to stop a future spurious +5, not to move
+        # today's scores. No replacement signal is added: inventing more intent
+        # signals is the additive-edge trap, refuted five times.
+        if OR_ABOVE_FIELD_INTENT_SIGNAL and runner.official_rating:
             ratings = [r.official_rating for r in race.runners if r.official_rating]
             if ratings:
                 avg_or = sum(ratings) / len(ratings)
                 if runner.official_rating >= avg_or + 8:
-                    intent_signals += 1  # Effectively dropping in class
+                    intent_signals += 1
 
-        # FIELD-RELATIVE SPEED DOMINANCE
-        # When this runner's best figure (RPR or TS) leads the field by 10+, bonus
+        # FIELD-RELATIVE SPEED "DOMINANCE" -- NOT IN CLAUDE.md, POINTS REMOVED
+        # 6 Aug 2026 audit: no edge factor in CLAUDE.md awards points for a
+        # field-relative figure lead. The file's only speed guidance beyond the
+        # 8-point Speed Figures factor is factor 6's TOPSPEED LEADER RULE, which
+        # is explicitly narrative -- such a horse "deserves serious selection
+        # consideration" -- and assigns no score. This block was handing out up
+        # to +5 (47 firings in 1896 runners, 9 of them +3 or +5) and it
+        # DOUBLE-COUNTS _score_class, which already scores rating-vs-field.
+        # Worst property: it inflates exactly the best-figure favourites that
+        # sit in the measured F3 short-premium-NAP losing cell.
+        # The lead is still computed and still reported -- at ZERO points -- so
+        # the LLM judgement layer can act on it where the rubric intends.
         my_best = max(runner.rpr or 0, runner.speed_figure or 0)
         if my_best > 0:
             field_figs = []
@@ -1181,15 +1218,29 @@ class Scorer:
             if field_figs:
                 next_best = max(field_figs)
                 lead = my_best - next_best
-                if lead >= 20:
-                    bonus += 5.0
-                    details.append(f"SPEED DOMINANCE: best fig {my_best} leads field by {lead}pts +5")
-                elif lead >= 10:
-                    bonus += 3.0
-                    details.append(f"Speed leader: best fig {my_best} leads by {lead}pts +3")
-                elif lead >= 5:
-                    bonus += 1.0
-                    details.append(f"Speed edge: best fig {my_best} leads by {lead}pts +1")
+                pts = 5.0 if lead >= 20 else 3.0 if lead >= 10 else \
+                    1.0 if lead >= 5 else 0.0
+                if pts and SPEED_DOMINANCE_BONUS_ENABLED:
+                    # Wording preserved verbatim per band so that flipping the
+                    # flag reproduces pre-6-Aug output byte-for-byte.
+                    bonus += pts
+                    if lead >= 20:
+                        details.append(
+                            f"SPEED DOMINANCE: best fig {my_best} leads field "
+                            f"by {lead}pts +5")
+                    elif lead >= 10:
+                        details.append(
+                            f"Speed leader: best fig {my_best} leads by "
+                            f"{lead}pts +3")
+                    else:
+                        details.append(
+                            f"Speed edge: best fig {my_best} leads by "
+                            f"{lead}pts +1")
+                elif pts:
+                    details.append(
+                        f"Speed leader: best fig {my_best} leads field by "
+                        f"{lead}pts (note only — not scored in rubric)"
+                    )
 
         # SIGNAL COMPOUNDING: 3+ intent signals = +5 additional
         if intent_signals >= 3:
