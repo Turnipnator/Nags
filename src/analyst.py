@@ -67,9 +67,6 @@ You will receive programmatically scored runners from today's races. The scorer 
 9. Score EVERY runner in target races before picking. No shortcuts
 10. NEVER override our RPR/TS pick entirely for Timeform. When they disagree, keep BOTH as contenders
 11. CLASS-DROP KICKER QUALITY FILTER (added 21 Apr after Pontefract 0-3): The scorer now skips the kicker when the higher-grade placed run was foreign, on AW with today on turf, or qualified in Spotlight as "weak form for the grade". If the kicker appears in Edges, trust it — if a Spotlight mentions a higher-grade placing but NO kicker shows, the quality filter fired, don't manually re-apply
-12. AW CLASS 5/6 WEIGHT-RISE BLOCKER (added 7 May 2026 — Rule A): For AW Class 5 / Class 6 HANDICAPS only — if a horse has 3+ wins in last 5 starts AND is rising +7lb or more from its last winning mark, CAP AT NB ROLE (never NAP). +10lb or more = SKIP entirely. Class 5/6 AW horses are mature/exposed and recycle through the same pool; the handicapper's rise punishes the streak. Spotlight phrases like "this Xlb higher mark", "raised Xlb", "now Xlb higher", "Xlb higher than" indicate the rise — read the figure and apply the rule. Validated 7 May 2026: Roaring Ralph (-22111 form, +9lb in same Class 5) NAP'd 9/2 → 7th of 11. Rule does NOT apply at Group/Listed/big-handicap level — improvers there absorb rises.
-13. AW CLASS 5/6 NO-NAP-ON-FAVOURITE (added 7 May 2026 — Rule B): For AW Class 5 / Class 6 HANDICAPS only — if your top scorer is also the betting market favourite (or co-favourite within ~5%) AND priced at sub-4/1 (decimal ≤ 4.0), set nap_index to -1 (no NAP that day, flat stakes). At sub-4/1 in compressed AW C5/6 form the framework's score adds nothing the market hasn't already priced — ROI is bookmaker-margin negative by construction. Validated 7 May 2026: Shades Of May 3/1F top scorer 78 → 8th of 10. NAP at 4/1+ is allowed only with explicit market-divergence note in reasoning. Rule does NOT apply at higher class — Brighterdaysahead 9/4 with TS+35, Madara, Saddadd 2/1 are legitimate short-priced NAPs that overwhelmed market consensus.
-14. C5/C6 SPOTLIGHT RED-FLAG DOWNGRADE (added 8 May 2026): For ANY Class 5 / Class 6 race (AW or turf), if a selection's Spotlight contains any of the following phrases, REDUCE adjusted_score by 5: "doesn't have a great record when fresh", "has plenty to prove", "on dangerous mark", "may need this", "down the list", "well held", "needs to bounce back", "not easy to predict", "out of sorts", "bit to prove". These are analyst hedges in compressed-pool handicaps where the figures look better than the prospects. Validated 8 May 2026: Mark's Choice (Ripon 6:45 C5) Spotlight "doesn't have a great record when fresh" was missed; bot scored 79, finished 6th at 9/2.
 15. C5/C6 SCORE-VS-MARKET GATE (added 8 May 2026 — Option B): In ANY Class 5 / Class 6 race, if a selection has adjusted_score ≥ 80 AND best decimal odds ≥ 9.0 (8/1 or longer), the score is structurally divergent from the market's view. Demote to race SEL stake (0.75pt) — never NAP, never NB-of-day. The framework score scale is not calibrated to win probability in compressed-pool handicaps; an 80+ score at 8/1+ means the rubric is over-counting recyclable-pool form, not finding edge. Pattern: Fairlawn Flyer 22/1 (score 81, Ffos Las 5 May), Star Prospect 88, Precise (3 May, score 104) — all score-market divergence in low-class form-compressed handicaps. Gate enforced by compliance backstop CHECK 6. Scope: Class 5/6 only — at C4 and above the score-market relationship is more reliable.
 16. CLASS FLOOR FOR BOT SELECTIONS (added 9 May 2026 — Option X): The bot now only sends races to Claude judgement that meet a class floor — Group/Listed/Grade always pass; Flat Class 4+ passes; NH Class 3+ passes. Flat Class 5/6/7 and NH Class 4/5 are blocked at the race-ranking step. This is enforced before scoring reaches the LLM, so by the time you see target races they have already passed. Reason: forensic comparison across 7-9 May showed three consecutive bleed days in low-class evening handicaps (AW C5/6 Southwell, turf C4/5 Ripon, NH C5 Hexham) while manual focus on premium class banked +£94 over the same window. The framework's score scale doesn't translate to win probability in compressed-pool fields. If you receive a low-class race in target_races (rare — would only happen via Group/Listed override), apply heightened scepticism.
 17. GOING STABILITY GATE (added 9 May 2026 — Option Y): For each course in target races, the bot compares current going against a persisted snapshot from earlier the same day. If shift ≥ 2 ordinal steps (Good→Soft = 2 steps, Good→Heavy = 3) within 12 hours, ALL selections on that course are demoted: NAP blocked, force E/W. Also, if `going_detailed` contains a phrase forecasting the going will CHANGE during the day ("watered", "watering", "showers", "rain forecast", "could change", "becoming softer", "drying out"), apply the same demotion. Do NOT demote on phrases that merely describe how the going varies ACROSS the track right now ("in places", "in the back straight") — that is ordinary clerk-of-the-course phrasing on a stable surface, not a forecast of change (5 Aug 2026: Pontefract "GOOD TO FIRM, Good in places (GoingStick: 8.4)" blocked the day's only 75+ NAP with measured drift of zero). Reason: Hexham 9 May 2026 — cards forecast "Good", races ran on "Soft" — Gardener NAP 5/1 (TS125 earned on Good) finished 5th of 6, Saracen Beau and Snapaudaciaheros both PU. Compliance gate enforces as backstop CHECK 11.
@@ -128,9 +125,6 @@ Before returning your JSON, verify EACH selection against these 7 checks. Do NOT
 2. NO EVENS-OR-SHORTER: Any selection priced ≤ 1/1 (e.g. EvensF, 4/5, 4/6, 1/2)? → Replace with NB. NOTE: 5/4, 6/4, 11/8, 7/4 are NOT sub-evens — do NOT block these. Being favourite alone is not a reason to demote.
 3. SPOTLIGHT: Any negative language on selections? → Downgrade. Negative language on NB is NOT a swap trigger; it's a reason to leave the NB where it is.
 4. ALL RUNNERS SCORED: Did you consider every horse in target races? → If not, go back.
-5. AW CLASS 5/6 TARGETED RULES (added 7 May 2026): For each selection in an AW Class 5 or Class 6 HANDICAP, apply BOTH:
-   (a) Weight-rise blocker (Rule A): if 3+ wins in last 5 starts AND Spotlight indicates a +7lb or larger rise from last winning mark, cap at NB role; +10lb or more, skip the selection. Phrases to scan: "this Xlb higher mark", "raised Xlb", "Xlb higher than", "now Xlb higher".
-   (b) No-NAP-on-favourite (Rule B): if the NAP candidate is also the market favourite at sub-4/1 (decimal ≤ 4.0) — set nap_index to -1 (flat stakes day). Top scorer = market consensus at sub-4/1 in compressed C5/6 form has zero edge over market. NAP at 4/1+ allowed only with explicit market-divergence note.
    Compliance gate enforces both as backstop. Rules do NOT apply at Group/Listed/big-handicap level.
 6. C5/C6 SCORE-VS-MARKET GATE (added 8 May 2026 — Option B): For each selection in ANY Class 5 / Class 6 race (AW or turf), if adjusted_score ≥ 80 AND best decimal odds ≥ 9.0 (8/1 or longer), demote to race SEL stake (no NAP, no NB-of-day). The score-vs-market divergence is too wide to trust — the framework over-counts recyclable-pool form in C5/C6. Compliance gate enforces as backstop.
 7. GOING STABILITY (added 9 May 2026 — Option Y): For each selection's course, check going against the snapshot from earlier today (compliance gate handles the snapshot lookup). If going has shifted by ≥ 2 ordinal steps within 12h (Good→Soft = 2; Good→Heavy = 3), set each_way to true and remove NAP — picks on this course are flat-stakes-only. Also flag races where `going_detailed` forecasts the going CHANGING during the day ("watered", "watering", "showers", "rain forecast", "could change", "becoming softer", "drying out"). Do NOT flag on present-tense spatial description ("in places", "in the back straight") — a stable surface described precisely is not volatile. Validated by Hexham 9 May 2026 going-shift bleed.
@@ -174,7 +168,6 @@ Return ONLY valid JSON:
     "CHECK 2 SUB-EVENS: Lowest selection priced 5/4 — above 1/1 threshold, no block — PASS",
     "CHECK 3 SPOTLIGHT: All spotlights reviewed, no negatives on selections — PASS",
     "CHECK 4 FULL FIELD: All runners scored in 4 target races — PASS",
-    "CHECK 5 AW C5/6: No selection in AW Class 5/6 handicap, Rule A/B not applicable — PASS"
   ],
   "notes": "Meetings avoided and why, overall observations"
 }
@@ -349,59 +342,6 @@ def _has_negative_spotlight(comment: str) -> bool:
         return False
     c = comment.lower()
     return any(phrase in c for phrase in _NEG_SPOTLIGHT_PHRASES)
-
-
-# AW Class 5/6 handicap targeted rules — added 7 May 2026 after Southwell
-# evening card lost twice on market-confirmed sub-4/1 picks (Roaring Ralph
-# 9/2 +9lb after C&D hat-trick → 7th of 11; Shades Of May 3/1F top scorer
-# → 8th of 10). Two rules:
-#  Rule A: 3+ wins in last 5 + rise ≥ +7lb → max NB; ≥ +10lb → skip
-#  Rule B: NAP = market fav at sub-4/1 → no NAP, flat stakes day
-# Class-specific to preserve framework flexibility at Group/Listed level.
-_AW_ONLY_COURSES = {"southwell", "wolverhampton", "chelmsford"}
-_DUAL_AW_COURSES = {"lingfield", "kempton", "newcastle"}
-
-# Spotlight phrases that quote a weight rise. Group 1 captures lb count.
-_RISE_PATTERNS = [
-    re.compile(r"this\s+(\d+)\s*lb\s+higher\s+mark", re.I),
-    re.compile(r"raised\s+(\d+)\s*lb", re.I),
-    re.compile(r"now\s+(\d+)\s*lb\s+higher", re.I),
-    re.compile(r"up\s+(\d+)\s*lb", re.I),
-    re.compile(r"(\d+)\s*lb\s+higher\s+than", re.I),
-    re.compile(r"(\d+)\s*lb\s+higher\s+mark", re.I),
-    re.compile(r"(\d+)\s*lb\s+rise", re.I),
-]
-
-
-def _is_aw_course(course: str, surface: str = "") -> bool:
-    """True if this course/surface is all-weather. Handles "(AW)" suffix on
-    course name and surface field for dual-track courses."""
-    c = (course or "").lower()
-    s = (surface or "").lower()
-    if "(aw)" in c:
-        return True
-    c_clean = c.replace("(aw)", "").strip()
-    if c_clean in _AW_ONLY_COURSES:
-        return True
-    if c_clean in _DUAL_AW_COURSES:
-        if any(x in s for x in ("all-weather", "all weather", "tapeta", "polytrack")):
-            return True
-    return False
-
-
-def _is_aw_c5_or_c6_handicap(race_name: str, meta: dict) -> bool:
-    """True if this race is an AW Class 5 or Class 6 handicap. Used by the
-    targeted weight-rise and no-NAP-on-fav rules added 7 May 2026."""
-    if not meta:
-        return False
-    rc = (meta.get("race_class") or "").lower()
-    if "class 5" not in rc and "class 6" not in rc:
-        return False
-    rn = (race_name or "").lower()
-    rt = (meta.get("race_type") or "").lower()
-    if "handicap" not in rn and "handicap" not in rt:
-        return False
-    return _is_aw_course(meta.get("course", ""), meta.get("surface", ""))
 
 
 def _is_premium_race(meta: dict) -> bool:
@@ -624,24 +564,6 @@ def _count_wins_in_last_5(form: str) -> int:
         return 0
     last_5 = completed[-5:]
     return sum(1 for c in last_5 if c == "1")
-
-
-def _extract_weight_rise_lb(comment: str) -> int:
-    """Parse a Spotlight string for a numeric lb rise. Returns the largest
-    plausible value found (0 if none). Bounded at <30lb to filter false
-    matches like 'won by 14 lengths'."""
-    if not comment:
-        return 0
-    best = 0
-    for pat in _RISE_PATTERNS:
-        for m in pat.finditer(comment):
-            try:
-                v = int(m.group(1))
-                if v > best and v < 30:
-                    best = v
-            except (ValueError, IndexError):
-                continue
-    return best
 
 
 def _parse_distance_to_furlongs(distance: str) -> float:
@@ -1247,82 +1169,15 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                     f"dropping entirely, not just demoting"
                 )
 
-    # CHECK 8: AW CLASS 5/6 WEIGHT-RISE BLOCKER (Rule A — added 7 May 2026)
-    # 3+ wins in last 5 starts AND Spotlight indicates a +7lb rise → max NB
-    # role (NAP demoted). +10lb → flag in compliance log as "should skip".
-    # Triggered by Roaring Ralph (-22111, +9lb after C&D hat-trick) NAP'd
-    # 9/2 → 7th of 11 at Southwell 7 May. Class 5/6 AW horses are
-    # mature/exposed; the handicapper's rise is reliably punitive in this
-    # echo chamber. Rule does NOT apply at Group/Listed/big-handicap level.
-    for i, sel in enumerate(sels):
-        horse = sel.get("horse", "")
-        sr = scored_lookup.get(horse.lower()) if horse else None
-        if not sr:
-            continue
-        race_name = sel.get("race_name", "")
-        meta = _resolve_race_meta(sel, race_meta_lookup)
-        if not _is_aw_c5_or_c6_handicap(race_name, meta):
-            continue
-        runner = sr.runner
-        wins_in_5 = _count_wins_in_last_5(runner.form or "")
-        if wins_in_5 < 3:
-            continue
-        rise = _extract_weight_rise_lb(runner.comment or "")
-        if rise >= 7:
-            if selections.get("nap_index") == i:
-                selections["nap_index"] = -1
-                compliance_fixes.append(
-                    f"AW C5/6 WEIGHT-RISE: {horse} (+{rise}lb after {wins_in_5} wins "
-                    f"in last 5) — NAP blocked, kept as race SEL only"
-                )
-                logger.info(
-                    f"Compliance: AW C5/6 +{rise}lb NAP demote for {horse}"
-                )
-            if rise >= 10:
-                # Flag strong skip recommendation in log; don't auto-remove
-                # the selection (let user/analyst decide), since removing
-                # mid-list invalidates indexes that other checks depend on.
-                compliance_fixes.append(
-                    f"AW C5/6 WEIGHT-RISE STRONG: {horse} (+{rise}lb) — rule says SKIP "
-                    f"entirely; kept in list but flat stakes only, consider dropping"
-                )
-
-    # CHECK 9: AW CLASS 5/6 NO-NAP-ON-FAVOURITE (Rule B — added 7 May 2026)
-    # If the NAP candidate is also the betting market favourite (or co-fav
-    # within ~5%) at sub-4/1 in an AW Class 5/6 handicap → no NAP that day
-    # (flat stakes). At sub-4/1 in compressed C5/6 form the framework's
-    # score adds nothing the market hasn't already priced — ROI is
-    # bookmaker-margin negative by construction. Triggered by Shades Of
-    # May 3/1F top scorer 78 → 8th of 10 at Southwell 7 May.
-    nap_idx = selections.get("nap_index", -1)
-    if nap_idx >= 0 and nap_idx < len(sels):
-        nap = sels[nap_idx]
-        nap_horse = nap.get("horse", "")
-        nap_odds = nap.get("odds_guide", "")
-        nap_dec = _parse_odds_to_decimal(nap_odds)
-        nap_race_name = nap.get("race_name", "")
-        nap_meta = _resolve_race_meta(nap, race_meta_lookup)
-        if (
-            _is_aw_c5_or_c6_handicap(nap_race_name, nap_meta)
-            and nap_dec > 0
-            and nap_dec <= 4.0
-        ):
-            runners_odds = nap_meta.get("runners", [])
-            valid = [(n, d) for (n, d) in runners_odds if d > 0]
-            if valid:
-                fav_dec = min(d for (_, d) in valid)
-                # Co-favourite tolerance ~5% of decimal price
-                is_market_fav = abs(nap_dec - fav_dec) <= max(0.25, 0.05 * fav_dec)
-                if is_market_fav:
-                    selections["nap_index"] = -1
-                    compliance_fixes.append(
-                        f"AW C5/6 NO-NAP-FAV: {nap_horse} ({nap_odds}, dec {nap_dec:.2f}) "
-                        f"is market favourite (fav dec {fav_dec:.2f}) at sub-4/1 in "
-                        f"AW Class 5/6 handicap — NAP blocked, flat stakes day"
-                    )
-                    logger.info(
-                        f"Compliance: AW C5/6 no-NAP-fav blocked {nap_horse} at {nap_odds}"
-                    )
+    # CHECK 8 and CHECK 9 (AW Class 5/6 weight-rise blocker and
+    # no-NAP-on-favourite, added 7 May 2026) were RETIRED on 6 Aug 2026:
+    # both were gated on the race being Class 5/6, and the class floor
+    # (Option X, 9 May 2026) blocks every Class 5/6 race at race-ranking
+    # -- measured C5/6 x floor-pass = 0 across 209 real races. They were
+    # superseded one day after they were written. Numbers 8 and 9 are
+    # left as gaps, NOT reused: CLAUDE.md cross-references CHECK numbers
+    # throughout and renumbering would break every one. See the C5/C6
+    # tombstone in CLAUDE.md for the rules themselves.
 
     # CHECK 10: C5/C6 SCORE-VS-MARKET GATE (Option B — added 8 May 2026)
     # In ANY Class 5 / Class 6 race (AW or turf), if a selection scores 80+

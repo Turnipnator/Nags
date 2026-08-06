@@ -867,102 +867,49 @@ These race types have compressed form, large fields, or unusual dynamics that de
 
 ---
 
-## AW Class 5/6 Handicap Targeted Rules (added 7 May 2026)
+## C5/C6 — RETIRED FROM THE BOT 6 Aug 2026 (kept as manual guidance)
 
-**Context:** Class 5/6 AW handicaps recycle the same 30-40 horses across Southwell / Wolverhampton / Lingfield AW / Chelmsford / Kempton AW. Form figures earned in this echo chamber against the same recyclable pool do NOT transfer linearly when a horse steps up in weight or class. The framework's heavy weighting on Form (22%) + Course (15%) + Going (15%) over-rates these horses; Weight (8%) under-punishes the handicapper's rise. Two rules tighten this without touching higher-class racing where the framework retains genuine edge.
+**The bot no longer has any Class 5/6 rules, because the bot never races Class 5/6.**
+The class floor below (Option X, 9 May 2026) blocks every C5/6 race at race-ranking —
+measured C5/6 × floor-pass = **0 across 209 real races**. Six rules written on 7–8 May
+were superseded by the floor **one day later** and sat unreachable for three months:
+Drift 1 (course-bonus decay), Drift 2 (class-score cap), Drift 3 (Flat long-absence
+penalty), Drift 4 (Spotlight red-flag downgrade), CHECK 8 (AW weight-rise blocker),
+CHECK 9 (AW no-NAP-on-favourite). Removed in commit `c56ret` — recoverable from git.
+CHECK 8 and CHECK 9 are left as **numbering gaps, deliberately not reused**, because
+CHECK numbers are cross-referenced throughout this file.
+**CHECK 10 was NOT retired** — the 30 Jun 2026 generalisation made it fire at all
+classes (score ≥ 82, odds ≥ 9.0), so it is a live gate, not a C5/6 rule.
+**Verified before shipping:** 534 C5/6 runner scores rise without the deflation, but
+**0 of them are in the live path**, and the full pipeline over 1–6 Aug returns the
+**same 25 races to judgement, same order, no top scorer changed in any of them.**
 
-### Rule A — AW Class 5/6 weight-rise blocker
+### ⚠ IF PAUL ASKS FOR A MANUAL READ OF A C5/6 CARD, THIS STILL APPLIES
 
-**Applies ONLY to AW Class 5 / Class 6 handicaps.**
+The reasoning was sound; only its reachability failed. When analysing Class 5/6 by
+hand — **and only by hand, the bot will not do this** — apply all of it:
 
-```
-Recent winning streak = 3+ wins in last 5 starts.
-
-+7lb or more rise from last winning mark → MAX NB ROLE (never NAP).
-+10lb or more rise from last winning mark → SKIP entirely (no bet).
-```
-
-**Why:** Class 5/6 AW horses are mature/exposed. The handicapper has the data and rises punish the streak. Validated 7 May 2026: Roaring Ralph (-22111, C&D hat-trick, +9lb in same Class 5) NAP'd at 9/2 → 7th of 11. Spotlight phrase "fairly treated on his old form" was the analyst hedging against the handicapper's 9lb of contrary evidence. We took the hedge as a green light.
-
-**Why class-specific:** At Group / Listed / big-handicap level, young improvers and progressive types absorb large rises (Madara, Brighterdaysahead). A blanket veto would have killed legitimate winners. Higher classes keep the soft Weight ding (-3 to -5 points) and Spotlight context.
-
-### Rule B — AW Class 5/6 no-NAP-on-favourite
-
-**Applies ONLY to AW Class 5 / Class 6 handicaps.**
-
-```
-If top scorer is also the betting market favourite (or co-favourite)
-AND priced at sub-4/1 (decimal multiplier ≤ 4.0) →
-  NO NAP that day. Treat as flat-stakes race SEL only.
-
-If top scorer is the market favourite at 4/1 or longer →
-  NAP allowed only with explicit market-divergence note in reasoning
-  (i.e. why we have it longer / why the market is wrong).
-```
-
-**Why:** When our top scorer matches the market favourite at sub-4/1 in compressed AW Class 5/6 form, the framework's score adds nothing the market hasn't already priced. ROI is bookmaker-margin negative by construction. Validated 7 May 2026: Shades Of May (3/1F, top scorer 78) → 8th of 10 in Class 6 Div II. Roaring Ralph (9/2 second-fav, also top scorer 82) → 7th. Both were market-confirmed picks at the price band where edge is mathematically zero.
-
-**Why class-specific:** Higher class genuine NAPs at short odds (Brighterdaysahead 9/4 with TS+35, Madara at the Festival, Saddadd 2/1 in Group 3) had overwhelming evidence beyond market consensus. A universal "no NAP on favourites" rule would block all three. The pattern that bleeds is "consensus near-favourite in AW Class 5/6 form" — that's where the targeted block applies.
-
-### Application
-
-When scoring an AW Class 5 or Class 6 handicap:
-1. For each runner, compute the rise in lb from their LAST WINNING mark (not last run mark).
-2. Count wins in last 5 starts. If 3+ wins AND rise ≥ +7lb, cap at NB; if ≥ +10lb, skip.
-3. After scoring, identify the betting market favourite. If top scorer = market fav (or joint-fav) at sub-4/1, no NAP that day.
-4. If the top-scorer-NAP is blocked by either rule, the day is flat-stakes — no 2pt NAP slot, race SEL stake of 0.75pt only.
-
----
-
-## C5/C6 Calibration Patches (added 8 May 2026)
-
-**Context:** Forensic hand-scoring on 8 May Ripon found the bot over-scoring vs the manual rubric by 5-9 points in compressed-pool C5/C6 handicaps. Mark's Choice (10yo, 10x course winner) scored 79 — manual was ~73. Novamay (4yo, top RPR but 239 days off after +25lb rise) scored 86 — manual was ~77. Both lost. Five fixes deployed, all scoped to **Class 5 / Class 6 only** (any surface, AW or turf). Premium-class scoring is unchanged — Lambourn-style class-on-his-ground reads remain at full ceiling.
-
-### Drift 1 — Course bonus decay (`scorer.py _score_course`)
-
-In Class 5/6, course bonus is capped at **12/15** (C&D winner), **9/15** (course winner), **6/15** (distance winner) — instead of 15/12/8. Reason: in C5/C6 the same recyclable pool keeps banking course bonus off historical wins that don't predict today. A 10x course winner at 11yo on 411-0 form gets 15/15 with the prior rule; that's dynasty form, not current form.
-
-### Drift 2 — Class score cap (`scorer.py _score_class`)
-
-In Class 5/6, top-RPR-in-field score is capped at **8/12** instead of 12/12, with proportional reductions through the bands. Reason: the field-relative class score has no absolute anchor. Top RPR in a Class 5 field of 70-90 RPRs ≠ top RPR in a Class 1 field of 120-140. The score is supposed to capture "this horse stands out by class" but in compressed pools it just rewards relative ranking.
-
-### Drift 3 — Flat C5/C6 long-absence penalty (`scorer.py _score_edges`)
-
-In Flat Class 5/6 only: **last_run > 90 days = -3**, **> 180 days = -5**. Mirrors the NH quick-turnaround penalty but at the opposite end. Reason: in compressed-pool C5/6 Flat handicaps, the form signal is fragile and a long absence makes recent form untestable. NH has the 7-day rule; this is the long-absence equivalent for Flat.
-
-### Drift 4 — Spotlight red-flag downgrade (system prompt rule 14)
-
-In Class 5/6 (any surface), if a selection's Spotlight contains any of these phrases, **reduce adjusted_score by 5**:
-- "doesn't have a great record when fresh"
-- "has plenty to prove"
-- "on dangerous mark"
-- "may need this"
-- "down the list"
-- "well held"
-- "needs to bounce back"
-- "not easy to predict"
-- "out of sorts"
-- "bit to prove"
-
-These are analyst hedges in compressed-pool handicaps where the figures look better than the prospects. Mark's Choice's Spotlight "doesn't have a great record when fresh" was the missed flag on 8 May.
-
-### Option B — Score-vs-market gate (system prompt rule 15 + compliance CHECK 6)
-
-In Class 5/6 (any surface), if a selection has **adjusted_score ≥ 80 AND best decimal odds ≥ 9.0 (8/1+)**, demote to race SEL stake (0.75pt). Cannot be NAP, cannot be NB-of-day. The score-vs-market divergence is too wide to trust.
-
-**Why:** an 80+ score at 16/1 implies a ~25-35% probability under the framework while the market implies ~6%. That gap means the framework is claiming a 4-5x edge over the bookies in race types where we have **never validated** that edge. Pattern: Fairlawn Flyer 22/1 (score 81, 5 May), Star Prospect 88, Precise (104, 3 May), Novamay 86 at 16/1 (8 May, C4 — outside this gate's scope but illustrates the broader pattern).
-
-The gate is enforced both at the LLM scoring stage (system prompt rule 15) and as a backstop in the compliance gate (CHECK 6 in `analyst.py _enforce_compliance`).
-
-### Why C5/C6 only
-
-The user's manual picks today (Lambourn 96 NAP at 11/8F WON in Group 2; Albaydaa 83 NB-of-day in Class 2) demonstrated that the framework's scoring scale is reliable in premium classes. The bleed is in evening C5/C6 cards where form is compressed against a recyclable pool. Targeted patches preserve the framework's edge where it exists while stopping the bleed where it doesn't.
-
-### Revert path
-
-If any of these patches block 3+ winners in C5/C6 over a 4-week window with no offsetting gains, raise the activation thresholds (Drift 1 ceilings up by 1-2 points, Drift 2 caps up by 1, Drift 3 day thresholds up by 30 days, Option B score threshold from 80 → 85). Don't roll back wholesale — these patches were data-driven, the rollback should be too.
-
----
+- **Course form decays.** The same 30–40 horses recycle round Southwell / Wolverhampton /
+  Lingfield AW / Chelmsford / Kempton AW. Treat a C&D win as **12/15, a course win 9/15,
+  a distance win 6/15** — a 10-time course winner at 11yo on 411-0 form is dynasty form,
+  not current form (Mark's Choice, Ripon 8 May 2026, scored 79 → 6th).
+- **Class score has no absolute anchor.** Top RPR in a field of 70–90 is not top RPR in a
+  field of 120–140. Cap the field-relative class read at **8/12**.
+- **Long absence breaks the form signal.** Flat C5/6 only: **>90 days −3, >180 days −5**
+  (Novamay, 239 days off after +25lb, scored 86 at 16/1 → unplaced).
+- **Weight rise punishes a streak.** 3+ wins in the last 5 **and +7lb or more** off the last
+  *winning* mark → **NB role at most, never NAP**; **+10lb or more → no bet** (Roaring Ralph,
+  +9lb after a C&D hat-trick, NAP'd 9/2 → 7th of 11).
+- **No NAP on a sub-4/1 favourite.** If the top scorer is also the market favourite at
+  4/1 or shorter, the score adds nothing the market has not priced — ROI is negative by
+  construction (Shades Of May 3/1F, top scorer 78 → 8th of 10).
+- **Spotlight hedges are load-bearing here.** Any of *"doesn't have a great record when
+  fresh", "has plenty to prove", "on dangerous mark", "may need this", "down the list",
+  "well held", "needs to bounce back", "not easy to predict", "out of sorts", "bit to
+  prove"* → **knock 5 points off**. In compressed pools these are the analyst telling you
+  the figures flatter the horse.
+- **Score-vs-market divergence is fatal.** 80+ score at 8/1 or longer implies a 4–5× edge
+  over the bookmakers in exactly the race type where we have never demonstrated one.
 
 ## Bot Class Floor + Going Stability (added 9 May 2026)
 
@@ -1016,6 +963,7 @@ When user fires `/run`:
 ### Revert path
 
 X: if 3+ legitimate Class 5/6 turf or Class 4/5 NH winners are missed in a 4-week window with no offsetting gain from premium-class focus, lower the floor by one class (Flat C5+, NH C4+). Don't remove entirely — the structural argument stands.
+⚠ **PRECONDITION (added 6 Aug 2026): lowering the floor to Flat C5 / NH C4 requires REINSTATING the C5/C6 calibration first** — see the C5/C6 tombstone above. Those six rules were retired precisely because the floor made them unreachable; drop the floor without restoring them and the bot races compressed-pool handicaps with none of the deflation that was written for exactly that territory. Restore from git, then lower the floor. Never the other way round.
 
 Y: if 3+ false positives (snapshots saying drift but actual going stable), increase the drift threshold from 2 to 3 ordinal steps, or extend the snapshot freshness window from 12h to 6h.
 

@@ -121,16 +121,6 @@ CLASS_LEVELS_FLAT = {
 }
 
 
-def _is_c5_or_c6(race) -> bool:
-    """Class 5 or Class 6 detection. Used for targeted calibration patches
-    (8 May 2026) — course-bonus decay, class-score cap, Flat DSLR penalty,
-    and the score-vs-market gate. The framework over-rates compressed-pool
-    handicaps; these patches deflate those scores by 5-9 points without
-    touching premium-class scoring where the framework retains edge."""
-    rc = (race.race_class or "").lower()
-    return "class 5" in rc or "class 6" in rc
-
-
 # Feature flag for Rule 18b (added 27 May 2026). Set False to disable.
 # Behaviour returns to current state in <1 minute when toggled off.
 RULE_18B_ENABLED = True
@@ -570,22 +560,9 @@ class Scorer:
     def _score_course(self, runner: Runner, race: Race) -> float:
         """Score course form (max 15 points).
 
-        C5/C6 patch (8 May 2026): cap at 12/9/6/5 instead of 15/12/8/5.
-        In Class 5/6 the same recyclable pool of horses cycles through the
-        same tracks, so course bonus banks repeatedly off historical wins
-        that don't predict today (Mark's Choice 10x course winner at 11yo,
-        Novamay C&D winner last July before +25lb rise + 239 days off).
-        Premium-class scoring (Class 1-4, Listed, Group, Grade) keeps the
-        full 15-point ceiling — Lambourn's Chester Vase form is genuine
-        course edge in a Group 2."""
-        if _is_c5_or_c6(race):
-            if runner.cd_winner:
-                return 12.0
-            if runner.course_winner:
-                return 9.0
-            if runner.distance_winner:
-                return 6.0
-            return 5.0
+        The C5/C6 course-bonus decay (Drift 1, 8 May 2026) was retired on
+        6 Aug 2026 -- it was unreachable. See the C5/C6 tombstone in
+        CLAUDE.md."""
         if runner.cd_winner:
             return 15.0
         if runner.course_winner:
@@ -678,19 +655,19 @@ class Scorer:
         avg_rating = sum(field_ratings) / len(field_ratings)
         max_rating = max(field_ratings)
 
-        is_low_class = _is_c5_or_c6(race)
-
+        # The C5/C6 class-score cap (Drift 2, 8 May 2026) was retired on
+        # 6 Aug 2026 -- unreachable. See the C5/C6 tombstone in CLAUDE.md.
         # Higher rating relative to field = better class
         if my_rating >= max_rating:
-            return 8.0 if is_low_class else 12.0
+            return 12.0
         elif my_rating >= avg_rating + 5:
-            return 7.0 if is_low_class else 10.0
+            return 10.0
         elif my_rating >= avg_rating:
-            return 6.0 if is_low_class else 8.0
+            return 8.0
         elif my_rating >= avg_rating - 5:
-            return 5.0 if is_low_class else 6.0
+            return 6.0
         else:
-            return 3.0 if is_low_class else 4.0
+            return 4.0
 
     def _score_speed(self, runner: Runner, race: Race = None) -> float:
         """
@@ -1149,29 +1126,6 @@ class Scorer:
             details.append("Optimal return window +1")
         elif runner.days_since_run and runner.days_since_run > 60:
             details.append(f"Long absence ({runner.days_since_run} days) - needs analyst review")
-
-        # FLAT LONG-ABSENCE PENALTY (C5/C6 only) — added 8 May 2026
-        # Validated by Novamay 16/1 86 unplaced at Ripon 7:15 8 May 2026:
-        # 239 days off, three-wins-then-fade form, no DSLR penalty applied
-        # under the prior rules. In compressed-pool C5/C6 Flat handicaps the
-        # form signal is fragile and a long absence makes it untestable.
-        # NH already has the 7-day quick-turnaround rule; this adds the
-        # opposite-end penalty for Flat C5/C6.
-        if (
-            not is_nh
-            and runner.days_since_run is not None
-            and _is_c5_or_c6(race)
-        ):
-            if runner.days_since_run > 180:
-                bonus -= 5.0
-                details.append(
-                    f"⚠️ Flat C5/C6 long absence {runner.days_since_run}d (>180) -5"
-                )
-            elif runner.days_since_run > 90:
-                bonus -= 3.0
-                details.append(
-                    f"⚠️ Flat C5/C6 absence {runner.days_since_run}d (>90) -3"
-                )
 
         # "Class drop detection (intent signal)" -- IT WAS NEVER A CLASS DROP.
         # This awards an intent signal when a runner is rated 8lb+ ABOVE the
