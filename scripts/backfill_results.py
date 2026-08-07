@@ -116,8 +116,8 @@ if MISSING:
     rows = conn.execute(
         """SELECT s.id, date(s.created_at) d, s.race_time, s.race_name, s.horse,
                   s.each_way, s.stake_pts, s.odds_guide, s.selection_type,
-                  NULL rid, NULL finish_position, NULL result, NULL sp_odds,
-                  0.0 pnl_pts
+                  s.source, NULL rid, NULL finish_position, NULL result,
+                  NULL sp_odds, 0.0 pnl_pts
            FROM selections s LEFT JOIN results r ON r.selection_id = s.id
            WHERE r.id IS NULL AND s.superseded_at IS NULL
            ORDER BY s.id"""
@@ -126,7 +126,8 @@ else:
     rows = conn.execute(
         """SELECT s.id, date(s.created_at) d, s.race_time, s.race_name, s.horse,
                   s.each_way, s.stake_pts, s.odds_guide, s.selection_type,
-                  r.id rid, r.finish_position, r.result, r.sp_odds, r.pnl_pts
+                  s.source, r.id rid, r.finish_position, r.result, r.sp_odds,
+                  r.pnl_pts
            FROM results r JOIN selections s ON s.id = r.selection_id
            WHERE r.selection_id < 707
            ORDER BY s.id"""
@@ -216,11 +217,15 @@ for d in sorted(by_date):
             finish_position=pos, sp_odds=sp, num_runners=n,
             is_handicap=is_hcap, morning_odds=r["odds_guide"] or "", bog=True,
         )
-        # One horse can legitimately appear once per race. A SECOND row for the
-        # same (race, horse) is a duplicate artefact of the pre-CHECK-0b bugs
-        # (cross-race NB, or two selections in one race) -- no separate bet
-        # existed, so settle it VOID rather than double-count the result.
-        dkey = (rc.get("race_id") or (key[0], rc.get("off")), target)
+        # One horse can legitimately appear once per race PER LEDGER. A second
+        # row for the same (race, horse, source) is a duplicate artefact of the
+        # pre-CHECK-0b bugs (cross-race NB, or two selections in one race) --
+        # no separate bet existed, so settle it VOID rather than double-count.
+        # `source` is in the key (7 Aug 2026) because the bot and the manual
+        # card legitimately back the same horse on the same day -- both are
+        # real tracked bets and both must settle.
+        dkey = (rc.get("race_id") or (key[0], rc.get("off")), target,
+                r["source"])
         if dkey in seen_bets:
             voided.append((r, seen_bets[dkey]))
             old_total += r["pnl_pts"] or 0.0
