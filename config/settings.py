@@ -116,6 +116,40 @@ FILTER_SHORTNAP_SHADOW = os.getenv("FILTER_SHORTNAP_SHADOW", "true").lower() == 
 SHORTNAP_MIN_ODDS = float(os.getenv("SHORTNAP_MIN_ODDS", "4.0"))  # fractional
 
 # ---------------------------------------------------------------------------
+# F4 TOP-2 PRICE RED FLAG — SHADOW ONLY (added 10 Aug 2026)
+# ---------------------------------------------------------------------------
+# Flags a race where, among BETABLE runners (above evens), our top deterministic
+# scorer is LONGER-priced at morning odds than our second. Log only: this filter
+# never drops, demotes, restakes or reorders anything.
+#
+# Evidence (499 premium Group/Grade/Listed/Class 1-3 GB+IRE races 1 Apr - 9 Aug
+# 2026 that pass every live gate, re-scored and joined to results, P&L at BOG;
+# discovery 1 Apr-12 Jul / holdout 13 Jul-9 Aug declared before looking):
+#   In the 189 flagged races our top scorer wins 6.4% (discovery) / 6.1%
+#   (holdout) against a ~15% base rate -- ROI -63% / -73%. The win rate is
+#   stable across independent windows, which is why it is worth watching.
+#   Backing BOTH legs and simply skipping flagged races beat the status quo by
+#   +172.5pt win-only / +221.2pt E/W (bootstrap 96.8% / 90.6%).
+#
+# ⚠ WHY IT IS SHADOW AND NOT LIVE: applied to our 288 REAL logged picks the
+# effect INVERTS in the holdout -- status quo +3.5% vs drop-race -13.2%, and the
+# picks it would have dropped returned +33.9%. n=33 there, so that is not a
+# refutation either. Unresolved. Unresolved does not go near the card.
+#
+# ⚠ SEPARATE FINDING, already actionable knowledge: the mandatory MARKET SWAP is
+# worth ZERO to anyone who backs both the SEL and the race NB -- it only relabels
+# which horse is called SEL (measured P&L delta at level stakes: +0.0pt over all
+# 499 races). Its entire value is stake allocation under the code's real
+# 1.0pt/0.5pt weighting (+23.7pt). The swap is a STAKING rule, not a selection
+# rule. See memory project_top2_premium_backtest.
+#
+# REVIEW 10 Sep 2026. Ship criteria: flagged races must underperform unflagged
+# ones on OUR OWN picks in the forward window, in the same direction as
+# discovery. If the holdout inversion repeats, drop the idea entirely.
+FILTER_TOP2FLAG_ENABLED = os.getenv("FILTER_TOP2FLAG_ENABLED", "true").lower() == "true"
+FILTER_TOP2FLAG_SHADOW = os.getenv("FILTER_TOP2FLAG_SHADOW", "true").lower() == "true"
+
+# ---------------------------------------------------------------------------
 # DAILY CARD REPLACEMENT (added 1 Aug 2026)
 # ---------------------------------------------------------------------------
 # The Operating Policy cap ("max 6 selections per day, 1 NAP") was enforced

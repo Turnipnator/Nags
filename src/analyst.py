@@ -24,7 +24,7 @@ from config.settings import (
     FILTER_SHADOW_MODE, FILTER_LONGSHOT_ENABLED, FILTER_LONGSHOT_SHADOW,
     LONGSHOT_MAX_ODDS, FILTER_HIGHSCORE_ENABLED, FILTER_HIGHSCORE_SHADOW,
     HIGHSCORE_DEMOTE_AT, FILTER_SHORTNAP_ENABLED, FILTER_SHORTNAP_SHADOW,
-    SHORTNAP_MIN_ODDS,
+    SHORTNAP_MIN_ODDS, FILTER_TOP2FLAG_ENABLED, FILTER_TOP2FLAG_SHADOW,
     GOING_DETAILED_REAL_FIELD, EW_REQUIRE_PLACE_MARKET,
     EW_MIN_RUNNERS_FOR_PLACE, CLASS_FLOOR_BLOCKS_UNCLASSED,
     GOING_VOLATILITY_SPATIAL_PHRASES,
@@ -1551,6 +1551,33 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                         f"({n}-runner field)"
                     )
 
+    # CHECK 18: F4 TOP-2 PRICE RED FLAG (added 10 Aug 2026) — SHADOW ONLY.
+    # Logs whether each selection sits in a race where our top deterministic
+    # scorer is longer-priced than our second. Appends NOTHING to
+    # compliance_fixes and mutates NO selection: with the flag on or off the
+    # gate output must be byte-identical (pinned by tests/test_top2_flag.py).
+    # Live-enabling this is a SEPARATE decision at the 10 Sep 2026 review — the
+    # effect survives both windows on the raw scorer but INVERTS on our own
+    # logged picks in the holdout. See config/settings.py.
+    if FILTER_TOP2FLAG_ENABLED:
+        is_live = not (FILTER_SHADOW_MODE or FILTER_TOP2FLAG_SHADOW)
+        prefix = "FILTER" if is_live else "FILTER-SHADOW"
+        for idx, sel in enumerate(sels):
+            meta = _resolve_race_meta(sel, race_meta_lookup)
+            flag = (meta or {}).get("top2_flag") or {}
+            if not flag:
+                continue
+            horse = sel.get("horse", "")
+            role = "NAP" if idx == selections.get("nap_index", -1) else "SEL"
+            logger.info(
+                f"{prefix} F4 TOP2-REDFLAG: {horse} ({role}) in "
+                f"{sel.get('race_time', '')} {sel.get('course', '')} — our top "
+                f"scorer {flag['top_horse']} {flag['top_odds']} "
+                f"({flag['top_score']}) is LONGER-priced than #2 "
+                f"{flag['second_horse']} {flag['second_odds']} "
+                f"({flag['second_score']}), gap {flag['gap']}"
+            )
+
     # Log all fixes
     if compliance_fixes:
         existing_log = selections.get("compliance_log", [])
@@ -1560,6 +1587,48 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
         logger.info("Compliance gate: all checks passed, no fixes needed")
 
     return selections
+
+
+def _top2_price_flag(scored_runners: list) -> dict:
+    """F4 TOP-2 PRICE RED FLAG (added 10 Aug 2026) — SHADOW / LOG ONLY.
+
+    Returns a detail dict when, among BETABLE runners (decimal multiplier > 1.0,
+    i.e. those that survive the sub-evens block), our top DETERMINISTIC scorer is
+    LONGER-priced at morning odds than our second. Returns {} otherwise.
+
+    Ranking is on `sr.total` — the deterministic score, NOT the LLM's
+    adjusted_score — among betable runners only. That is exactly how the
+    backtest defined it; if the two ever diverge the forward sample is
+    worthless, so tests/test_top2_flag.py pins it.
+
+    Measured over 499 premium gate-passing races (1 Apr - 9 Aug 2026): in the
+    189 flagged races the top scorer wins 6.4% (discovery) / 6.1% (holdout)
+    against a ~15% base rate. See config.settings for the full evidence and
+    for why this is shadow rather than live.
+
+    Fails silent (returns {}) when fewer than two runners are betable — absence
+    of a price is not evidence of a red flag.
+    """
+    betable = []
+    for sr in scored_runners:
+        dec = _parse_odds_to_decimal(getattr(sr.runner, "odds", "") or "")
+        if dec > 1.0:
+            betable.append((sr, dec))
+    if len(betable) < 2:
+        return {}
+    betable.sort(key=lambda x: x[0].total, reverse=True)
+    (sr1, dec1), (sr2, dec2) = betable[0], betable[1]
+    if dec2 >= dec1:          # top scorer is the shorter one — no flag
+        return {}
+    return {
+        "top_horse": sr1.runner.name,
+        "top_odds": getattr(sr1.runner, "odds", "") or "",
+        "top_score": round(sr1.total, 1),
+        "second_horse": sr2.runner.name,
+        "second_odds": getattr(sr2.runner, "odds", "") or "",
+        "second_score": round(sr2.total, 1),
+        "gap": round(sr1.total - sr2.total, 1),
+    }
 
 
 def _should_be_each_way_from_odds(odds_str: str, race_name: str, num_runners: int) -> bool:
@@ -1840,6 +1909,10 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
                 (sr.runner.name.lower(), _parse_odds_to_decimal(sr.runner.odds or ""))
                 for sr in scored_runners
             ],
+            # F4 TOP-2 PRICE RED FLAG (10 Aug 2026) — shadow only, read by
+            # CHECK 18. Held in its own key rather than extended onto the
+            # `runners` tuples above, which CHECK 0b unpacks positionally.
+            "top2_flag": _top2_price_flag(scored_runners),
         }
 
     # Step 3: Claude judgement
