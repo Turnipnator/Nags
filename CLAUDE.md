@@ -1526,9 +1526,14 @@ Be prepared to parse data from:
 
 ```
 https://www.theracingapi.com/
-HORSE_RACING_API_USERNAME=wBImJVpizEw31zd31NIjRu8F
-HORSE_RACING_API_PASSWORD=3luxQ6CFBY7m7vg0rpf0MWX4
 ```
+
+**Credentials live in the environment, never in this file.** The bot reads
+`RACING_API_USERNAME` / `RACING_API_PASSWORD` from `.env` (VPS:
+`/root/horse-racing-bot/.env`). This file is tracked in the Nags git repo and
+pushed to GitHub, so anything written here is published — the plaintext
+username/password that sat here from 1 Aug to 11 Aug 2026 were exposed for
+that reason and should be treated as compromised until rotated.
 
 ### Racecards (try in order)
 1. **Racing API pro** (PRIMARY): `https://api.theracingapi.com/v1/racecards/pro?date=YYYY-MM-DD`
@@ -1593,75 +1598,6 @@ Extract for every runner: spotlight, trainer_14_days, medical, last_run, stable_
 - Racing Post sometimes blocks (403) — use API + Sporting Life
 - Always check non-runners close to race time
 - Market data most useful within 30 minutes of race time
-
----
-
-## Change Log: v3 → v4.1
-
-**Removed (rules that cost more than they earned):**
-- TS-veto rule (cap at NB if TS 10+ below OR) — Trust House 5/6F, A King Of Magic 11/4F, Naval Tribute 9/4F, Candonomore EvensF all WON after being capped. **29 Apr Pontefract added 3 more failures: Alpine Girl 5/1 WON, Veblen Good 16/1 WON, Boubyan 9/1 2nd — all TS-vetoed despite positive Spotlights.** 7 vetoed winners/placers in 8 days.
-- Dual-edge force-NB-min rule — 1W-1P-5L track record after Pontefract 29 Apr (Leadenhall 5th, Modern Times 3rd in 2-place race). Zero winners produced.
-- Bidirectional MANDATORY NB swap **SPLIT** — market swap kept (branch a), value swap softened to "consider with Spotlight gate" (branch b)
-- 9-step Pre-Output Compliance Checklist (down to 4)
-- Pre-Scoring Elimination Gate with first-string jockey override
-- Front-runner conflict rule (no validation since 19 Apr)
-- Class-drop quality filter (filter on a filter; original kicker already qualified)
-- Class-drop kicker scaling (+3/+5) — collapsed into max +12 Class score
-- Early-season 3yo Flat ALL-types extension (cost us Raaheeb 5/1 24 Apr) — kept handicaps version
-- Big-field Listed/Group sprints 16+ runners — only one validation
-- Mandatory Timeform Verdict check (now optional supplement)
-- Danger swap check
-- 78+ NAP threshold (back to 75+)
-
-**Kept (v3 additions that earned their keep):**
-- Operating Policy (max 6/day, one-meeting focus, skip <75 cards)
-- Racing API first, mandatory primary data source
-- **Mandatory MARKET swap (NB shorter-priced + within 5pts)** — fired correctly 4/4 in last fortnight (Mister Winston, Jakajaro, Walsingham, Lightening Company)
-- Mandatory Spotlight read before selecting
-- Mandatory score every runner
-- Sub-evens block (≤1/1)
-- NH quick-turnaround penalty (≤7 days = -5)
-- Always-E/W on handicaps
-- Big-field handicap finals (12+) system-resistant
-- Grade 2+ bumpers 15+ system-resistant
-- Early-season 3yo Flat HANDICAPS (12+) system-resistant
-- Cheltenham Festival handicaps system-resistant (Fred Winter, NH Chase, Kim Muir)
-- Spotlight-overrides-figures principle (Jaipaletemps lesson)
-- NAP discipline (no NAP if nothing qualifies)
-- Falls/Unseats class-horse rule (already in v2, kept and strengthened)
-
-**Net change vs v3: ~500 lines lighter, ~150 lines heavier than v2.**
-
-## v4 → v4.1 refinement (29 Apr 2026)
-
-After day-1 paper-trade test on Pontefract 29 Apr 2026:
-- Original v4 had ALL NB swap as "consider only"
-- That cost ~£60 vs v3 across two races (3:23 Walsingham SEL flipped to NB; 4:33 Lightening Company SEL flipped to NB)
-- BUT: both were MARKET swaps (NB shorter-priced), not VALUE swaps (NB longer-priced)
-- The 27 Apr Bath disasters that motivated softening were VALUE swaps (Diamondsinthesand, Nakaaha both promoted via longer-priced NB swap)
-- Conclusion: split the rule. Mandatory market swap is fine; mandatory value swap is broken.
-
-This is the only change between v4.0 and v4.1.
-
-## v4.1 in-flight tightening (5 May 2026)
-
-After Ffos Las 5 May 2026:
-- Bot's compliance gate auto-fired the value swap (branch b)
-  on Ffos Las 16:48: Kylenoe Dancer 10/1 promoted over Lion
-  Of The Desert 10/3, score gap 5pts, KD's Spotlight clean.
-- Lion Of The Desert WON. Kylenoe Dancer was a non-runner.
-- The Spotlight gate added on 27 April was a partial fix —
-  it suppresses promotions when the NB Spotlight is negative,
-  but allows them when the Spotlight is clean. That's not
-  enough: the 5 May case had a clean Spotlight and the swap
-  was still wrong.
-- Resolution: remove the auto-fire entirely. Value swap is
-  not a deterministic compliance action. The analyst can
-  still consider the longer-priced NB during scoring and
-  promote it organically by ranking it above. The gate now
-  enforces only the market swap (branch a).
-- Code: `analyst.py` line 335 onwards — value-swap branch
-  removed from compliance gate; system-prompt rules updated.
 
 ---
 
