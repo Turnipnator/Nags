@@ -1,0 +1,32 @@
+# Keep secrets OUT of the image.
+#
+# The Dockerfile does `COPY . .`, so without this file `.env` is baked into
+# every image layer -- credentials sitting inside an artefact that gets copied
+# around, long after they are rotated. Compose already injects them correctly
+# at runtime via `env_file: .env`, and config/settings.py reads them with
+# os.getenv(), so the baked copy was never the path that mattered.
+#
+# NOTE: python-dotenv's load_dotenv() does not override variables that are
+# already set, so runtime env_file values won this race anyway -- but only by
+# the library's default. Excluding the file removes the ambiguity entirely.
+.env
+.env.*
+!.env.example
+
+# The money ledger and its WAL live here and are volume-mounted at runtime
+# (./data:/app/data). Baking them in shipped a stale racing.db plus a 13MB
+# results cache in every build.
+data/
+logs/
+
+# Build noise
+.git/
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.DS_Store
+*.log
