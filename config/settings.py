@@ -90,9 +90,31 @@ FILTER_LONGSHOT_ENABLED = os.getenv("FILTER_LONGSHOT_ENABLED", "true").lower() =
 FILTER_LONGSHOT_SHADOW = os.getenv("FILTER_LONGSHOT_SHADOW", "false").lower() == "true"
 LONGSHOT_MAX_ODDS = float(os.getenv("LONGSHOT_MAX_ODDS", "11.0"))  # fractional
 
-# F1 HIGHSCORE — STILL SHADOW (log only) to the 11 Aug 2026 review. The weaker
-# filter, expected to die. Set FILTER_HIGHSCORE_SHADOW=false only after that review.
-FILTER_HIGHSCORE_ENABLED = os.getenv("FILTER_HIGHSCORE_ENABLED", "true").lower() == "true"
+# F1 HIGHSCORE — ⛔ RETIRED 11 Aug 2026 at its scheduled review. Default now
+# FALSE; it never enforced anything (shadow-only), so switching it off changes
+# no selection and no stake — it only stops logging a filter we have decided
+# against.
+#
+# It FAILED its own pre-registered success bar. Required: shadow-applied ROI
+# beats actual by >= 4 points. Delivered: **+0.39 points** across 103 bets
+# (actual -13.95% -> F1 -13.56%). Only 9 picks in four weeks reached 85+.
+#
+# On those 9 it made ROI WORSE: actual -5.44pt on 25.0pt staked (-21.8%);
+# F1-applied -2.72pt on 10.5pt (-25.9%). It "saved" 2.72pt purely by staking
+# less. ⚠ Total P&L always improves when you bet less — judge a filter on ROI,
+# never on P&L saved. It also demoted TWO winners, including Pershaada, a 3/1
+# NAP that WON and returned +7.2pt, the biggest return in the band.
+#
+# ⚠ AND THE PREMISE HAD ALREADY WEAKENED. F1 was built on "85+ = -31.3% ROI
+# (n=55)". After the 6 Aug ledger reconciliation re-settled everything at BOG,
+# those SAME 55 picks read **-15.8%**. Nobody re-derived the filters when the
+# ledger was fixed. The 85+ band also had the HIGHEST win rate of any band in
+# the shadow window (22.2%) — it is a price problem, not a picking problem, and
+# demoting the whole band was too blunt for it.
+#
+# Revert (if the band ever turns bad again): FILTER_HIGHSCORE_ENABLED=true —
+# it returns to shadow, since FILTER_HIGHSCORE_SHADOW still defaults true.
+FILTER_HIGHSCORE_ENABLED = os.getenv("FILTER_HIGHSCORE_ENABLED", "false").lower() == "true"
 FILTER_HIGHSCORE_SHADOW = os.getenv("FILTER_HIGHSCORE_SHADOW", "true").lower() == "true"
 HIGHSCORE_DEMOTE_AT = float(os.getenv("HIGHSCORE_DEMOTE_AT", "85.0"))
 
