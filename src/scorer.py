@@ -1161,7 +1161,23 @@ class Scorer:
         # sit in the measured F3 short-premium-NAP losing cell.
         # The lead is still computed and still reported -- at ZERO points -- so
         # the LLM judgement layer can act on it where the rubric intends.
-        my_best = max(runner.rpr or 0, runner.speed_figure or 0)
+        #
+        # ⚠ THIS BLOCK DOES NOT IMPLEMENT FACTOR 6'S TOPSPEED LEADER RULE, and
+        # must not be described as if it does. That rule is TS only, 3+ points
+        # clear, AND priced 5/1 or bigger. This computes max(RPR, TS) with no
+        # price condition and fires at 5+. The two are different signals.
+        # RELABELLED 12 Aug 2026: the note-only string used to read "Speed
+        # leader", but the number is usually the RPR -- so on 12 Aug the
+        # judgement layer read it as the clock and published "Sovereign View is
+        # the clock's outright leader" when his TS 78 was THIRD in the race
+        # (Gallant 79). Zero points either way; the string's only job is to
+        # inform the LLM, so a name that misidentifies the metric is a defect.
+        # Deliberately NOT fixed by narrowing to TS: that would silently drop
+        # the RPR-leader signal and is a behaviour change dressed as a rename.
+        rpr_val = runner.rpr or 0
+        ts_val = runner.speed_figure or 0
+        fig_src = "RPR" if rpr_val >= ts_val else "TS"
+        my_best = max(rpr_val, ts_val)
         if my_best > 0:
             field_figs = []
             for r in race.runners:
@@ -1192,8 +1208,9 @@ class Scorer:
                             f"{lead}pts +1")
                 elif pts:
                     details.append(
-                        f"Speed leader: best fig {my_best} leads field by "
-                        f"{lead}pts (note only — not scored in rubric)"
+                        f"Best figure {my_best} ({fig_src}) leads field by "
+                        f"{lead}pts — best of RPR/TS, NOT the Topspeed clock "
+                        f"(note only — not scored in rubric)"
                     )
 
         # SIGNAL COMPOUNDING: 3+ intent signals = +5 additional

@@ -90,6 +90,47 @@ flat_b = Runner(name="B", rpr=100, official_rating=90)
 chk("no lead -> no note, no points",
     edges(flat_a, race_with([flat_a, flat_b])) == (0.0, []))
 
+print("\n1b. NOTE NAMES THE METRIC IT ACTUALLY COMPUTES (relabel, 12 Aug 2026)")
+
+# The note used to say "Speed leader" while computing max(RPR, TS). On 12 Aug
+# the judgement layer read that as the clock and published "Sovereign View is
+# the clock's outright leader" -- his TS was THIRD in the race. Zero points, so
+# the string's only job is informing the LLM; a name that misidentifies the
+# metric is the whole defect.
+
+
+def lead_note(target, race):
+    return next((d for d in edges(target, race)[1] if "leads field by" in d), "")
+
+
+# RPR is the source (today's Sovereign View shape: RPR high, TS low).
+rpr_led = Runner(name="RprLed", rpr=96, speed_figure=78, official_rating=82)
+rpr_rivals = [Runner(name=f"X{i}", rpr=90, speed_figure=79, official_rating=80)
+              for i in range(4)]
+note = lead_note(rpr_led, race_with([rpr_led] + rpr_rivals))
+chk("names RPR when RPR is the better figure", "(RPR)" in note)
+chk("does not call an RPR lead a speed lead", "Speed leader" not in note)
+chk("explicitly disclaims the clock", "NOT the Topspeed clock" in note)
+
+# TS is the source.
+ts_led = Runner(name="TsLed", rpr=80, speed_figure=100, official_rating=75)
+ts_rivals = [Runner(name=f"Y{i}", rpr=85, speed_figure=88, official_rating=75)
+             for i in range(4)]
+chk("names TS when TS is the better figure",
+    "(TS)" in lead_note(ts_led, race_with([ts_led] + ts_rivals)))
+
+# Load-bearing: relabel must not move a single point, in either flag state.
+chk("relabel is score-neutral (flag off)",
+    edges(rpr_led, race_with([rpr_led] + rpr_rivals))[0] == 0.0)
+try:
+    S.SPEED_DOMINANCE_BONUS_ENABLED = True
+    b_on, det_on = edges(star, r)
+    chk("flag ON wording still byte-identical (regression guard)",
+        det_on == ["SPEED DOMINANCE: best fig 120 leads field by 20pts +5"])
+    chk("flag ON points unchanged by the relabel", b_on == 5.0)
+finally:
+    S.SPEED_DOMINANCE_BONUS_ENABLED = False
+
 print("\n2. UNRECOGNISED FIRST-TIME HEADGEAR — NO INVENTED BONUS")
 
 
