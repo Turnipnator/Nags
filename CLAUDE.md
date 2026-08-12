@@ -113,6 +113,8 @@
 
 > **Relabel 12 Aug 2026 — the zero-point figure-leader note named the wrong metric** (`scorer.py` `_score_edges`, note-only branch). Since the 6 Aug audit stripped its points, the field-relative figure lead has been reported as a **note whose only job is informing the LLM** — and it read `"Speed leader: best fig N leads field by Xpts"` while computing **`max(RPR, TS)`**. Measured over 8 days: **55 of 69 firings were the RPR, not the Topspeed** — so four times in five the word "Speed" described a performance rating. It duly misled the judgement layer: on 12 Aug the bot published *"Sovereign View… **the clock's outright leader**"* (Kempton 20:00) when his **TS 78 was third in the race** (Gallant 79, Final Night 78 level). His RPR 96 *did* lead by 6, and RPR-over-OR +14 is legitimate in a handicap — but that is the handicapper's opinion, not the stopwatch. Now reads `Best figure {N} ({RPR|TS}) leads field by {X}pts — best of RPR/TS, NOT the Topspeed clock (note only — not scored in rubric)`. **Zero scoring impact: 0 of 2,460 runner scores moved across 8 days** (verified by diffing against the pre-change scorer), and the three bonus-enabled wordings are untouched so `SPEED_DOMINANCE_BONUS_ENABLED=true` still reproduces pre-6-Aug output byte-for-byte. Tests **36/36** (`tests/test_edge_block_rubric.py`, section 1b). ⚠ **Deliberately NOT narrowed to TS-only** — that would silently drop the RPR-leader signal and is a behaviour change dressed as a rename. ⚠ **This block still does NOT implement factor 6's TOPSPEED LEADER RULE** (which is TS only, 3+ clear, **and 5/1 or bigger**); implementing that is a missing-signal addition, i.e. the additive-edge trap refuted five times, and it is **not done**. Code comment corrected to stop claiming otherwise. **Method note: every gate in this file checks scores, prices and class — none can see the PROSE the judgement layer writes, nor the strings it is fed. This was found by reading the bot's own output against the data, which remains the only way these surface** (cf. the 6 Aug T14 audit).
 >
+> **⚠⚠ PROVENANCE 12 Aug 2026 — THE SPOTLIGHT IS MACHINE-GENERATED. THE OVERRIDE IS WITHDRAWN.** The Racing API's `comment` field — the input this file calls MANDATORY and grants the power to **override the figures** — is generated prose derived from the same structured fields we already score (rating rank, form string, days off, weight, draw, trip/going flags), **not** a human form student's read. Caught reading the 12 Aug card: the API shipped a generator's own scratchpad live — *"Dandana showed her best when winning one start back — **sorry, a winner \*\*five\*\* starts back**, … `---` `Let me recount carefully:` `Latest first: 4th (1), unplaced (2), unplaced (3), 4th (4`"* — raw markdown, visible reasoning, **truncated mid-token**. Not isolated: across **9,619 commented runners** the text runs one rigid skeleton, and quality changed **~30 Jul 2026** (template-phrase rate **40% → 62%**, artefacts begin; 1 artefact in the 23 days before, every day after). It was already generated before 30 Jul — 20/25 Jul read *"he's our second-highest-rated in this seven-runner field"*. ⚠ **THE DATA IS CORRECT; THE DERIVATION IS NOT** — Dandana's `form` (`140-04`) was fine, the generator fumbled counting backwards through it and self-corrected (its final answer, five starts back, is right). **We read `form`/`rpr`/`ofr`/`lbs`/`draw`/`last_run` straight from the same payload, so the comment re-derives — with errors — data we already hold exactly.** ⚠ **Method limit: the field is 100% empty before 7 Jul in the 131-day cache — that is a ~5-week API retention window, NOT evidence about the past.** **Three consequences, all now written into the body of this file:** **(1) OVERRIDE WITHDRAWN** — the narrative *is* the figures, so it can no longer outweigh them; the Jaipaletemps case is retained as the **standard** a comment must meet (genuinely external insight — *"all wins came under a 7-10lb claimer who isn't riding today"* — findable nowhere in the structured data), and the test is *"could this have been derived from the fields we already read?"* If yes, it is not an override. **(2) NEGATIVE-PHRASE DOWNGRADE KEPT, DELIBERATELY** — measured on 1,652 betable gate-passing runners, phrase-carriers won 5.0% v 9.9% and returned −51.8% v −17.9%, **but vs the price the difference is −0.0073 A−E/bet, 95% CI [−0.044, +0.033], spanning zero**; mean score 56.0 v 60.9, and **"hard to fancy" is 644 of 798 hits, rendered from low rating rank — it double-counts `_score_class`.** Kept because those horses still lost heavily and our picks do not track the market perfectly; **removing it would let more of them through, the wrong direction for a system whose only proven edge is subtractive.** It must never outweigh a strong figures case: **Supreme King's comment read "hard to fancy" purely for ranking 6th of 7 on RPR and he WON at 4/1** (Salisbury 15:00, 12 Aug). **(3) RULE 18's SPOTLIGHT TRIGGER IS EFFECTIVELY DEAD** — its excuse phrases appear **14 times in 9,619 runners (0.15%)**; do NOT loosen the trigger to compensate. **Deterministic Rule 18b is unaffected** (it reads class tiers and beaten margins, not prose). ⚠ **~25–30% of runners have NO comment at all** — On Message had none and **won the 12 Aug Listed at 14/1**; a missing comment is **no information**, never a negative. **Raise the artefact leakage with the Racing API** — £99/month should not ship raw model self-corrections. **If they revert to human copy, this whole note must be revisited.**
+>
 > **Common Patterns**: See `~/trading-bot-skill.md` for deployment, Docker, Telegram, and strategy patterns shared across all trading bots.
 
 ---
@@ -227,8 +229,44 @@ If the user pastes their own card data instead, accept any format (Racing Post, 
 
 The Racing API provides Spotlight and Comment fields for every runner. **These MUST be read before any horse is selected or made NB.**
 
+> ### ⚠⚠ THE OVERRIDE IS WITHDRAWN — 12 Aug 2026. THE SPOTLIGHT IS NO LONGER INDEPENDENT INFORMATION.
+>
+> **The `comment` field is now MACHINE-GENERATED from the same structured fields this framework
+> already scores** — rating rank, form string, days since last run, weight, draw, trip/going flags.
+> It is not a human form student's read. Proven on the 12 Aug card, where the API shipped a
+> generator's own self-correction live: *"Dandana showed her best when winning one start back —
+> **sorry, a winner \*\*five\*\* starts back**, … `---` `Let me recount carefully:` `Latest first:
+> 4th (1), unplaced (2), unplaced (3), 4th (4`"* — markdown, scratchpad reasoning, truncated
+> mid-token. Across 9,619 commented runners the text follows one rigid skeleton (*"has experience
+> over today's trip and going"*, *"carrying 136 lb from stall two"*, *"ranks sixth of seven on our
+> figures"*). Style changed ~30 Jul 2026 (template rate 40%→62%, artefacts begin); it was already
+> generated before that.
+>
+> **⚠ THE DATA IS CORRECT — THE DERIVATION IS NOT.** Dandana's `form` (`140-04`) was fine; the
+> generator fumbled counting backwards through it, corrected itself, and the correction shipped
+> because nothing strips it. We read `form`/`rpr`/`ofr`/`lbs`/`draw`/`last_run` **directly from the
+> same payload**, so the comment re-derives, with errors, data we already hold exactly.
+>
+> **THEREFORE: the narrative may NO LONGER override the figures — it IS the figures.** Letting it
+> override them is letting RPR override RPR. Treat the comment as a *readable summary*, never as
+> independent evidence, and NEVER let it outweigh RPR/TS/OR, class, going or the market.
+>
+> **The Jaipaletemps example below is retained as the STANDARD, not as current practice.** That was
+> a human noticing every win came with a 7-10lb claimer who wasn't riding today — a fact found
+> nowhere in the structured data. **If a comment ever contains that kind of genuinely external
+> insight, the override still applies to THAT sentence.** Generated boilerplate restating rank and
+> form does not qualify. The test is: *could this have been derived from the fields we already
+> read?* If yes, it is not an override.
+>
+> ⚠ **~25–30% of runners have NO comment at all** (On Message had none and won the 12 Aug Listed at
+> 14/1). A missing comment is **NO INFORMATION** — never read it as a negative.
+
 ```
-SPOTLIGHT OVERRIDES — when the narrative contradicts the numbers,
+SPOTLIGHT OVERRIDES — ⚠ WITHDRAWN 12 Aug 2026, see the box above.
+Retained as the STANDARD a comment must meet to override figures:
+genuinely external insight, not a restatement of the form string.
+
+Historically: when the narrative contradicts the numbers,
 the narrative wins. Speed figures reflect past performances under
 past conditions. The Spotlight tells you if those conditions apply
 TODAY.
@@ -262,7 +300,31 @@ of RPR/TS gaps.
 
 If the Spotlight contains any of these for a horse you were considering, **drop them or reduce role** (NAP → NB, NB → off card).
 
+**⚠ THIS DOWNGRADE IS DELIBERATELY KEPT — but understand what it is now doing.** Measured 12 Aug 2026
+on 1,652 betable runners in gate-passing races (7 Jul – 9 Aug): phrase-carriers won **5.0% v 9.9%**
+and returned **−51.8% v −17.9%** — but the difference **vs the price** is only **−0.0073 A−E per bet,
+95% CI [−0.044, +0.033], which SPANS ZERO.** Mean score of phrase-carriers is 56.0 v 60.9, i.e. the
+phrase largely restates what `_score_class` already scored. **"hard to fancy" alone is 644 of the 798
+hits and is rendered from a low rating rank — so it double-counts the rating, in the negative
+direction.** Kept anyway because those horses still lost heavily and our selection does not track the
+market perfectly: a redundant filter that blocks bad bets is not a useless one, and removing it would
+let more of them through — **the wrong direction for a system whose only proven edge is subtractive.**
+⚠ **But it must NEVER outweigh a strong figures-and-class case.** Salisbury 15:00, 12 Aug 2026:
+**Supreme King's comment read "making him hard to fancy" purely because he ranked 6th of 7 on RPR —
+he WON at 4/1.** A generated phrase is not analyst scepticism.
+
 ### EXCUSED LAST-RUN OVERRIDE (positive mirror — added 21 May 2026)
+
+> **⚠ EFFECTIVELY INOPERATIVE SINCE THE COMMENT FIELD WENT MACHINE-GENERATED — measured 12 Aug 2026.**
+> This rule fires only on an EXPLICIT excuse in the Spotlight text. Across **9,619 commented runners
+> (7 Jul – 9 Aug) the qualifying phrases appear 14 times — 0.15%**: "wide draw" ×10, "too keen" ×2,
+> "missed the break" ×1, "met trouble" ×1. The generator does not write excuses; it renders finishing
+> positions. **Do NOT compensate by loosening the trigger or inferring an excuse that is not stated**
+> — the guards below (specific, present in the text, single most-recent run only) are what stop this
+> becoming a licence to promote any horse with one bad run, and inventing signals the data does not
+> contain is the additive-edge trap. **Rule 18b — the DETERMINISTIC higher-class version in
+> `scorer.py` — is unaffected and still fires normally**; it reads `recent_results` class tiers and
+> beaten margins, not prose. Bellarchi (the founding case) would NOT be caught today.
 
 ```
 The "Spotlight overrides figures" rule cuts BOTH ways. The rule above
