@@ -597,3 +597,30 @@ NAP_REQUIRES_SL_CORROBORATION = os.getenv(
 FILTER_POSBLOCK_ENABLED = os.getenv("FILTER_POSBLOCK_ENABLED", "true").lower() == "true"
 FILTER_POSBLOCK_SHADOW = os.getenv("FILTER_POSBLOCK_SHADOW", "true").lower() == "true"
 POSBLOCK_FLAG_AT = float(os.getenv("POSBLOCK_FLAG_AT", "30.0"))
+
+# ── PAST-POST FILTER (added 14 Aug 2026) ────────────────────────────────────
+# A race that has already started can never be bet, but nothing stopped one
+# entering the card. On 13 Aug 2026 a /run at 15:50 selected Beverley 14:15 --
+# gone off 95 minutes earlier. The Betfair bot could not place it (market
+# closed), but it was written to racing.db, and the nightly settler duly marked
+# it WON at 6/4 for +1.75pt. That is PROFIT ENTERING THE LEDGER FROM A BET THAT
+# WAS NEVER STRUCK, and it flatters us -- the worst direction to fail, given
+# racing.db is the authority behind every ROI figure we quote and the 6 Aug
+# reconciliation exists precisely to make that number trustworthy.
+# (Those two rows were superseded by hand; this stops it recurring.)
+#
+# STRICTLY SUBTRACTIVE: can only remove a race, never add one.
+# ⚠ TIMEZONE: Race.time is LONDON local but the container runs UTC -- at 00:42
+# London the container's date.today() still reads the previous day. The helper
+# therefore uses Europe/London explicitly for BOTH the clock and the date.
+# ⚠ BACKTEST SAFETY: only applies when the meeting's date IS today in London.
+# Replaying a historical card must be untouched, or every backtest drops every
+# race.
+# ⚠ FAILS OPEN: any parse/timezone error returns "not started" and the race is
+# kept. A bug here could otherwise silently empty an entire card.
+PASTPOST_FILTER_ENABLED = os.getenv("PASTPOST_FILTER_ENABLED", "true").lower() == "true"
+# Minutes AFTER the off before a race is considered unbettable. 0 = block from
+# the advertised off time. Negative values would block before the off (e.g. -2
+# to allow for the bot's own placement latency); not the default, because the
+# purpose here is ledger integrity, not execution timing.
+PASTPOST_BUFFER_MINUTES = float(os.getenv("PASTPOST_BUFFER_MINUTES", "0"))

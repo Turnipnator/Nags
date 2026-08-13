@@ -30,6 +30,7 @@ from config.settings import (
     GOING_VOLATILITY_SPATIAL_PHRASES, SPORTINGLIFE_ENABLED,
     NAP_REQUIRES_SL_CORROBORATION, FILTER_POSBLOCK_ENABLED,
     FILTER_POSBLOCK_SHADOW, POSBLOCK_FLAG_AT,
+    PASTPOST_FILTER_ENABLED, PASTPOST_BUFFER_MINUTES,
 )
 from src.scraper import Runner, Race, Meeting, Scraper
 from src.scorer import RunnerScore, Scorer
@@ -398,6 +399,57 @@ def _is_c5_or_c6_any(meta: dict) -> bool:
     rc = (meta.get("race_class") or "").lower()
     return "class 5" in rc or "class 6" in rc
 
+
+
+def _race_already_started(race, meeting, now=None) -> bool:
+    """True if this race has already gone off, so it can never be bet.
+
+    Added 14 Aug 2026. A /run at 15:50 on 13 Aug selected Beverley 14:15 -- off
+    95 minutes earlier. The Betfair bot could not place it (market closed) but
+    it was written to racing.db, and the settler marked it WON at 6/4 for
+    +1.75pt: profit entering the ledger from a bet that was never struck, in the
+    direction that flatters us.
+
+    STRICTLY SUBTRACTIVE -- can only remove a race, never add one.
+
+    ⚠ TIMEZONE. `Race.time` is LONDON local; the container runs UTC. At 00:42
+    London the container's own `date.today()` still reads the PREVIOUS day, so
+    both the clock and the date come from Europe/London here. Comparing against
+    UTC would be an hour out and would either keep a run race or drop a live one.
+
+    ⚠ BACKTEST SAFETY. Only fires when the meeting's date IS today in London.
+    Replaying a historical card must be untouched -- otherwise every backtest
+    drops every race, silently.
+
+    ⚠ FAILS OPEN. Any parse or timezone error returns False and the race is
+    kept. A bug here could otherwise empty an entire card without a trace.
+
+    `now` is injectable for testing ONLY -- production always passes None and
+    reads the London clock. It exists because a suite that builds fixtures as
+    "now +/- N minutes" is not deterministic: run at 00:42, "95 minutes ago"
+    wraps to the previous day and the fixture silently describes a race 22 hours
+    in the FUTURE. Three tests failed that way before this parameter existed.
+    """
+    if not PASTPOST_FILTER_ENABLED:
+        return False
+    try:
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+        london = ZoneInfo("Europe/London")
+        if now is None:
+            now = datetime.now(london)
+
+        m_date = getattr(meeting, "date", None)
+        if m_date is None or m_date != now.date():
+            return False                      # not today's card -> never filter
+
+        raw = (getattr(race, "time", "") or "").strip()
+        hh, mm = raw.split(":")
+        off = datetime.combine(m_date, datetime.min.time(),
+                               tzinfo=london).replace(hour=int(hh), minute=int(mm))
+        return now >= off + timedelta(minutes=PASTPOST_BUFFER_MINUTES)
+    except Exception:
+        return False                          # fail open, always
 
 def _meets_class_floor(race) -> bool:
     """Class floor for bot race-selection (Option X — added 9 May 2026).
@@ -1801,15 +1853,34 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
     scorer = Scorer()
     all_scored = []
 
+    pastpost_dropped = []
     for meeting in meetings:
         for race in meeting.races:
             if not race.runners:
+                continue
+            # PAST-POST GATE (14 Aug 2026) — a race that has gone off can never
+            # be bet, and logging it produces a phantom settled bet. Dropped
+            # here, before scoring, so BOTH the /run N and default race-ranking
+            # branches inherit it. See _race_already_started.
+            if _race_already_started(race, meeting):
+                pastpost_dropped.append(f"{meeting.course} {race.time}")
                 continue
             scored = scorer.score_race(race)
             for sr in scored:
                 all_scored.append((sr, race, meeting))
 
+    if pastpost_dropped:
+        logger.info(
+            f"PAST-POST: dropped {len(pastpost_dropped)} race(s) already run — "
+            f"{', '.join(pastpost_dropped[:12])}"
+            f"{' …' if len(pastpost_dropped) > 12 else ''}"
+        )
+
     if not all_scored:
+        if pastpost_dropped:
+            logger.warning(
+                "PAST-POST: every race on the card has already run — no selections."
+            )
         return {}
 
     # Step 2: Build per-race scored lists, then choose target races
