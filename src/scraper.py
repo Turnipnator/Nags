@@ -20,6 +20,8 @@ import httpx
 
 from config.settings import (
     RACING_API_USERNAME, RACING_API_PASSWORD, VALID_COURSES, NR_PRICE_ONLY,
+    SPORTINGLIFE_ENABLED, SPORTINGLIFE_TIMEOUT, SPORTINGLIFE_DELAY,
+    SPORTINGLIFE_BASE, USER_AGENT,
 )
 
 logger = logging.getLogger(__name__)
@@ -136,6 +138,13 @@ class Runner:
     silk_url: Optional[str] = None
     medical: Optional[list] = None
     stable_tour: Optional[str] = None
+    # SPORTING LIFE (added 13 Aug 2026) — HUMAN analyst commentary, as opposed
+    # to `comment` above which the Racing API confirmed is machine-generated
+    # from form data. Populated only for gate-passing races, only when
+    # SPORTINGLIFE_ENABLED, and read ONLY by the LLM judgement layer — never by
+    # the deterministic scorer. Empty string / empty list when unavailable.
+    sl_comment: str = ""
+    sl_insights: list = field(default_factory=list)
     # Last 3 runs: list of {date, class_level (int), position (str), race_name}
     # Populated by Scraper.enrich_with_recent_classes() after racecard fetch.
     # Used by scorer for authoritative class-drop kicker detection.
@@ -215,6 +224,111 @@ class Scraper:
             timeout=httpx.Timeout(90.0, connect=15.0),
         )
         self.base_url = "https://api.theracingapi.com/v1"
+
+    # ------------------------------------------------------------------
+    # SPORTING LIFE — human analyst commentary (added 13 Aug 2026)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _sl_norm(name: str) -> str:
+        """Normalise a horse name for joining.
+
+        ⚠ Sporting Life and the Racing API disagree on BOTH obvious join keys:
+        times run an hour apart (18:41 v 19:41) and race names differ in
+        wording ("Handicap" v "Handicap Stakes"). So we join on COURSE + DATE
+        to find the race, then on the NORMALISED HORSE NAME within it.
+        Parenthesised country codes are stripped, exactly as for results.
+        """
+        return re.sub(r"[^a-z0-9]", "", re.sub(r"\([^)]*\)", "", name or "").lower())
+
+    def fetch_sportinglife(self, target_date: date, wanted: list) -> tuple:
+        """Fetch human analyst commentary for specific races only.
+
+        `wanted` is a list of (course, race_name) for races that have ALREADY
+        passed every gate — typically 3-8 a day, never the full ~108-race card.
+
+        Returns (lookup, status) where lookup maps
+            (normalised course, normalised horse) -> {"commentary", "insights"}
+        and `status` is a human-readable string, empty on full success.
+
+        FAILS OPEN, LOUDLY: any error returns ({}, "<reason>") and the caller
+        proceeds on Racing API data alone. A third-party website must never be
+        able to block or silently alter a card -- but the operator MUST be told
+        it happened (Paul, 13 Aug 2026), so the reason is surfaced in `notes`,
+        not just logged. This is the lesson of the 5 Jun 2026 silent
+        "Programmatic fallback" bug, where a swallowed failure hid the total
+        loss of the judgement layer for a full day.
+        """
+        if not SPORTINGLIFE_ENABLED:
+            return {}, ""
+        if not wanted:
+            return {}, ""
+
+        def ckey(s):
+            s = re.sub(r"\([^)]*\)", "", s or "").lower()
+            return re.sub(r"[^a-z0-9]", "", s)
+
+        want_courses = {ckey(c) for c, _ in wanted}
+        headers = {"User-Agent": USER_AGENT}
+        lookup, fetched, failed = {}, 0, 0
+        try:
+            idx = httpx.get(
+                f"{SPORTINGLIFE_BASE}/racing/racecards/{target_date.isoformat()}",
+                headers=headers, timeout=SPORTINGLIFE_TIMEOUT,
+                follow_redirects=True)
+            if idx.status_code != 200:
+                return {}, f"Sporting Life index HTTP {idx.status_code}"
+            meetings = idx.json()
+        except Exception as exc:
+            return {}, f"Sporting Life index unavailable ({type(exc).__name__})"
+
+        targets = []
+        for mt in meetings if isinstance(meetings, list) else []:
+            summary = mt.get("meeting_summary") or {}
+            course = ((summary.get("course") or {}).get("name")) or ""
+            if ckey(course) not in want_courses:
+                continue
+            for rc in mt.get("races") or []:
+                rid = ((rc.get("race_summary_reference") or {}).get("id"))
+                if rid:
+                    targets.append((course, rid))
+
+        for course, rid in targets:
+            try:
+                time_mod.sleep(SPORTINGLIFE_DELAY)
+                resp = httpx.get(f"{SPORTINGLIFE_BASE}/race/{rid}",
+                                 headers=headers, timeout=SPORTINGLIFE_TIMEOUT,
+                                 follow_redirects=True)
+                if resp.status_code != 200:
+                    failed += 1
+                    continue
+                body = resp.json()
+            except Exception:
+                failed += 1
+                continue
+            fetched += 1
+            for ride in body.get("rides") or []:
+                horse = ((ride.get("horse") or {}).get("name")) or ""
+                if not horse:
+                    continue
+                # NOTE: ride["betting"]["current_odds"] is deliberately IGNORED.
+                # It is not a live price -- 13 Aug 2026 it showed Parlando 4/1
+                # against 12/1 across all 32 bookmakers on the Racing API.
+                # Prices, ratings, going and field size stay with the API.
+                lookup[(ckey(course), self._sl_norm(horse))] = {
+                    "commentary": (ride.get("commentary") or "").strip(),
+                    "insights": [i.get("type") for i in (ride.get("insights") or [])
+                                 if isinstance(i, dict) and i.get("type")],
+                }
+
+        if not lookup:
+            return {}, "Sporting Life returned no commentary for today's races"
+        status = ""
+        if failed:
+            status = (f"Sporting Life partial: {fetched} races fetched, "
+                      f"{failed} failed")
+        logger.info("Sporting Life: %d races fetched, %d failed, %d runners",
+                    fetched, failed, len(lookup))
+        return lookup, status
 
     def close(self):
         self.client.close()

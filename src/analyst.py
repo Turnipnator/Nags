@@ -27,9 +27,9 @@ from config.settings import (
     SHORTNAP_MIN_ODDS, FILTER_TOP2FLAG_ENABLED, FILTER_TOP2FLAG_SHADOW,
     GOING_DETAILED_REAL_FIELD, EW_REQUIRE_PLACE_MARKET,
     EW_MIN_RUNNERS_FOR_PLACE, CLASS_FLOOR_BLOCKS_UNCLASSED,
-    GOING_VOLATILITY_SPATIAL_PHRASES,
+    GOING_VOLATILITY_SPATIAL_PHRASES, SPORTINGLIFE_ENABLED,
 )
-from src.scraper import Runner, Race, Meeting
+from src.scraper import Runner, Race, Meeting, Scraper
 from src.scorer import RunnerScore, Scorer
 
 logger = logging.getLogger(__name__)
@@ -1863,6 +1863,44 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
         )
 
     # Build scored lookup for compliance gate
+    # SPORTING LIFE ENRICHMENT (added 13 Aug 2026) — runs HERE, after every
+    # gate, so we only ever fetch races that already survived the class floor,
+    # the betable-70 threshold and the dominant-favourite pass rule (Paul,
+    # 13 Aug: "100% only for races that pass the gate"). Typically 3-8 races.
+    # LLM judgement layer only — the deterministic scores above are already
+    # final and are NOT touched.
+    sl_status = ""
+    if SPORTINGLIFE_ENABLED and top_races_data:
+        try:
+            wanted = [(meeting.course, race.name)
+                      for _, race, meeting in top_races_data]
+            sl_date = top_races_data[0][2].date
+            sl_scraper = Scraper()
+            try:
+                sl_lookup, sl_status = sl_scraper.fetch_sportinglife(sl_date, wanted)
+            finally:
+                sl_scraper.close()
+            matched = 0
+            for scored_runners, race, meeting in top_races_data:
+                ckey = re.sub(r"[^a-z0-9]", "",
+                              re.sub(r"\([^)]*\)", "", meeting.course or "").lower())
+                for sr in scored_runners:
+                    hit = sl_lookup.get((ckey, Scraper._sl_norm(sr.runner.name)))
+                    if hit:
+                        sr.runner.sl_comment = hit.get("commentary", "")
+                        sr.runner.sl_insights = hit.get("insights", []) or []
+                        matched += 1
+            logger.info("Sporting Life matched %d runners in %d gate-passing races",
+                        matched, len(top_races_data))
+            if sl_lookup and not matched:
+                sl_status = "Sporting Life fetched but matched 0 runners (join failure)"
+        except Exception as exc:
+            # FAIL OPEN, LOUDLY. Never let a third-party site block a card, but
+            # never hide it either -- surfaced in `notes`, not just the log.
+            sl_status = f"Sporting Life enrichment failed ({type(exc).__name__})"
+            logger.warning("Sporting Life enrichment failed: %s", exc)
+
+    # Build scored lookup for compliance gate
     scored_lookup = {}
     race_meta_lookup = {}
     for scored_runners, race, meeting in top_races_data:
@@ -1927,6 +1965,7 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
 
             # Step 3.5: COMPLIANCE GATE — enforce rules programmatically
             selections = _enforce_compliance(selections, scored_lookup, race_meta_lookup)
+            _note_sl_status(selections, sl_status)
 
             return selections
         logger.warning("Claude returned empty, falling back to programmatic")
@@ -1939,7 +1978,27 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
         top_races_data, n_races=n_races, fallback_reason=fallback_reason
     )
     fallback = _enforce_compliance(fallback, scored_lookup, race_meta_lookup)
+    _note_sl_status(fallback, sl_status)
     return fallback
+
+
+def _note_sl_status(selections: dict, sl_status: str) -> None:
+    """Surface a Sporting Life enrichment failure in the OUTPUT, not just logs.
+
+    Paul, 13 Aug 2026: "Fail open, but must tell us." The card still goes ahead
+    on Racing API data alone -- a third-party website must never block a bet --
+    but a silent degradation is exactly the 5 Jun 2026 failure mode, where a
+    swallowed error hid the total loss of the CLAUDE.md judgement layer for a
+    full day and the only tell was fallback scores ending in .1.
+
+    So: when the human-analyst source is missing, the reader is told the picks
+    were made WITHOUT it, and can weight them accordingly.
+    """
+    if not sl_status or not isinstance(selections, dict):
+        return
+    warning = f"⚠ {sl_status} — selections made from Racing API data only."
+    existing = (selections.get("notes") or "").strip()
+    selections["notes"] = f"{warning}\n\n{existing}" if existing else warning
 
 
 def _run_claude_judgement(top_races_data: list, meetings: list[Meeting],
@@ -2051,7 +2110,19 @@ def _run_claude_judgement(top_races_data: list, meetings: list[Meeting],
             if sr.edge_details:
                 parts.append(f"    Edges: {', '.join(sr.edge_details)}")
             if r.comment:
-                parts.append(f"    Spotlight: {r.comment[:300]}")
+                parts.append(
+                    f"    Spotlight (API, MACHINE-GENERATED from form data — "
+                    f"restates figures, NEVER overrides them): {r.comment[:300]}")
+            if getattr(r, "sl_comment", ""):
+                # HUMAN analyst copy. This is the only source that can carry
+                # external insight (past field size, trouble in running, whether
+                # headgear was new, runs at the trip) — i.e. the only text that
+                # can legitimately override the figures. See CLAUDE.md 13 Aug 2026.
+                parts.append(
+                    f"    ★ Sporting Life (HUMAN analyst — may override figures): "
+                    f"{r.sl_comment[:400]}")
+            if getattr(r, "sl_insights", None):
+                parts.append(f"    ★ SL flags: {', '.join(r.sl_insights)}")
             if r.stable_tour:
                 parts.append(f"    Stable tour: {r.stable_tour[:150]}")
 
