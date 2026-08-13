@@ -544,3 +544,56 @@ SPORTINGLIFE_BASE = "https://www.sportinglife.com/api/horse-racing"
 # Revert: NAP_REQUIRES_SL_CORROBORATION=false.
 NAP_REQUIRES_SL_CORROBORATION = os.getenv(
     "NAP_REQUIRES_SL_CORROBORATION", "true").lower() == "true"
+
+# ── F5 POSITIONAL BLOCK — SHADOW (log only) from 13 Aug 2026 ─────────────────
+# Review 10 Sep 2026.
+#
+# THE MEASUREMENT (7,023 betable runners in gate-passing races + 352 real
+# logged picks, 1 Apr - 9 Aug, BOG, holdout 13 Jul declared before looking):
+# the Course+Going+Distance block (42 of the scorer's 100 points) is NEGATIVELY
+# associated with performance against price.
+#
+#   RAW SCORER — highest C+G+D in a race vs lowest:
+#     highest  n=683  A-E/bet -0.0513  ROI -24.8%
+#     lowest   n=686  A-E/bet -0.0087  ROI  -7.9%
+#     difference -0.0426, 95% CI [-0.076, -0.008] -- EXCLUDES ZERO,
+#     and holds in BOTH windows (holdout stronger: -0.072 v -0.017).
+#
+#   OUR REAL PICKS:
+#     block >= 30  n=153  A-E/bet -0.0779  ROI -41.4%
+#     block <  30  n=199  A-E/bet -0.0129  ROI +19.0%
+#     discovery -30.2% v +0.5%; holdout -59.3% v +70.2%.
+#
+# ⚠ WHY IT IS SHADOW AND NOT LIVE, despite that spread:
+#   1. On REAL PICKS the difference is -0.0650 with 95% CI [-0.140, +0.011] --
+#      IT SPANS ZERO. n=352 is not enough to establish it, however large it looks.
+#   2. `next_best` INVERTS (-19.9% v -43.7%) -- 1 of 4 slots goes the other way.
+#   3. It would affect 43% of all picks. The block is 42 of 100 scorer points.
+#      That is not a tweak, and this project has been burned repeatedly by
+#      large, consistent four-week effects that evaporated (F1 most recently).
+#
+# ⭐ WHY IT IS WORTH WATCHING AT ALL: every previous "raw scorer is bad in
+# segment X" finding INVERTED on real picks -- handicaps (#9), few-run horses
+# (#10), tied blocks (#11). This one does not invert. It gets stronger. That is
+# the only reason it is not already filed with the refutations.
+#
+# NOT explained by price: holds in every band (3/1-6/1 -35.6% v +33.3%;
+# 6/1+ -53.7% v +38.0%). NOT just the NAP slot: appears in nap, selection and
+# race_nb.
+#
+# PRE-REGISTERED SUCCESS BAR (written before any forward data, per the F1
+# lesson -- F1 failed because its bar was set loosely and its premise had
+# silently died when the ledger was reconciled):
+#   SHIP only if ALL THREE hold in the forward window:
+#     (a) >= 40 flagged (block >= 30) real picks, so the cell is not noise;
+#     (b) flagged picks underperform unflagged by >= 15 ROI points;
+#     (c) the direction matches discovery (flagged worse), not inverted.
+#   FAILURE: gap < 5 points, or inverted => drop the idea entirely.
+# ⚠ RE-DERIVE against the reconciled ledger before judging. F1 was designed on
+# numbers the 6 Aug reconciliation superseded and nobody re-checked.
+#
+# Eventual action if it ships would be DEMOTE (reduce stake), never DROP -- the
+# cell contains genuine winners and it is 43% of the card.
+FILTER_POSBLOCK_ENABLED = os.getenv("FILTER_POSBLOCK_ENABLED", "true").lower() == "true"
+FILTER_POSBLOCK_SHADOW = os.getenv("FILTER_POSBLOCK_SHADOW", "true").lower() == "true"
+POSBLOCK_FLAG_AT = float(os.getenv("POSBLOCK_FLAG_AT", "30.0"))

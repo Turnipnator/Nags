@@ -28,7 +28,8 @@ from config.settings import (
     GOING_DETAILED_REAL_FIELD, EW_REQUIRE_PLACE_MARKET,
     EW_MIN_RUNNERS_FOR_PLACE, CLASS_FLOOR_BLOCKS_UNCLASSED,
     GOING_VOLATILITY_SPATIAL_PHRASES, SPORTINGLIFE_ENABLED,
-    NAP_REQUIRES_SL_CORROBORATION,
+    NAP_REQUIRES_SL_CORROBORATION, FILTER_POSBLOCK_ENABLED,
+    FILTER_POSBLOCK_SHADOW, POSBLOCK_FLAG_AT,
 )
 from src.scraper import Runner, Race, Meeting, Scraper
 from src.scorer import RunnerScore, Scorer
@@ -1655,6 +1656,40 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                 f"({flag['second_score']}), gap {flag['gap']}"
             )
 
+    # CHECK 20: F5 POSITIONAL BLOCK (added 13 Aug 2026) — SHADOW ONLY.
+    # Logs each selection's Course+Going+Distance total. Appends NOTHING to
+    # compliance_fixes and mutates NO selection: with the flag on or off the
+    # gate output must be byte-identical (pinned by tests/test_posblock.py).
+    #
+    # ⚠ DO NOT ACT ON THIS AT SCORING TIME. It is the operational change-log for
+    # a trial, not a selection heuristic — using it would contaminate the very
+    # forward window it exists to measure. Score races exactly as before.
+    #
+    # Live-enabling is a SEPARATE decision at the 10 Sep 2026 review against the
+    # pre-registered bar in config/settings.py. The effect is significant on the
+    # raw scorer and consistent in both windows, but its CI on our OWN picks
+    # spans zero and `next_best` inverts.
+    if FILTER_POSBLOCK_ENABLED:
+        is_live = not (FILTER_SHADOW_MODE or FILTER_POSBLOCK_SHADOW)
+        prefix = "FILTER" if is_live else "FILTER-SHADOW"
+        for idx, sel in enumerate(sels):
+            sr = scored_lookup.get((sel.get("horse", "") or "").lower())
+            if sr is None:
+                continue
+            blk = _positional_block(sr)
+            if blk < POSBLOCK_FLAG_AT:
+                continue
+            role = "NAP" if idx == selections.get("nap_index", -1) else "SEL"
+            logger.info(
+                f"{prefix} F5 POSBLOCK: {sel.get('horse', '')} ({role}) in "
+                f"{sel.get('race_time', '')} {sel.get('course', '')} — "
+                f"C+G+D {blk:.0f} >= {POSBLOCK_FLAG_AT:.0f} "
+                f"[C{getattr(sr, 'course_score', 0):.0f} "
+                f"G{getattr(sr, 'going_score', 0):.0f} "
+                f"D{getattr(sr, 'distance_score', 0):.0f}] — measured cell "
+                f"ROI -41.4% v +19.0% (shadow, no action taken)"
+            )
+
     # Log all fixes
     if compliance_fixes:
         existing_log = selections.get("compliance_log", [])
@@ -1665,6 +1700,20 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
 
     return selections
 
+
+
+def _positional_block(sr) -> float:
+    """Course + Going + Distance = 42 of the scorer's 100 points.
+
+    F5 (13 Aug 2026). Measured NEGATIVELY associated with performance against
+    price: on 7,023 betable runners the highest-block runner in a race returns
+    A-E/bet -0.0513 v -0.0087 for the lowest (95% CI on the difference EXCLUDES
+    zero, both windows). On 352 real picks, block >= 30 returns -41.4% ROI v
+    +19.0% -- same direction, but that CI SPANS zero, so it is SHADOW ONLY.
+    """
+    return (getattr(sr, "course_score", 0.0)
+            + getattr(sr, "going_score", 0.0)
+            + getattr(sr, "distance_score", 0.0))
 
 def _top2_price_flag(scored_runners: list) -> dict:
     """F4 TOP-2 PRICE RED FLAG (added 10 Aug 2026) — SHADOW / LOG ONLY.
