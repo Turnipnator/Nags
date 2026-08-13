@@ -361,16 +361,30 @@ he WON at 4/1.** A generated phrase is not analyst scepticism.
 
 ### EXCUSED LAST-RUN OVERRIDE (positive mirror — added 21 May 2026)
 
-> **⚠ EFFECTIVELY INOPERATIVE SINCE THE COMMENT FIELD WENT MACHINE-GENERATED — measured 12 Aug 2026.**
-> This rule fires only on an EXPLICIT excuse in the Spotlight text. Across **9,619 commented runners
-> (7 Jul – 9 Aug) the qualifying phrases appear 14 times — 0.15%**: "wide draw" ×10, "too keen" ×2,
-> "missed the break" ×1, "met trouble" ×1. The generator does not write excuses; it renders finishing
-> positions. **Do NOT compensate by loosening the trigger or inferring an excuse that is not stated**
-> — the guards below (specific, present in the text, single most-recent run only) are what stop this
-> becoming a licence to promote any horse with one bad run, and inventing signals the data does not
-> contain is the additive-edge trap. **Rule 18b — the DETERMINISTIC higher-class version in
-> `scorer.py` — is unaffected and still fires normally**; it reads `recent_results` class tiers and
-> beaten margins, not prose. Bellarchi (the founding case) would NOT be caught today.
+> **✅ REVIVED 13 Aug 2026 — THIS RULE NOW FIRES ON THE SPORTING LIFE READ, NOT THE API COMMENT.**
+> It was declared inoperative on 12 Aug because the API's generated text carries a qualifying excuse
+> in **14 of 9,619 runners (0.15%)** — the generator does not write excuses, it renders finishing
+> positions, and typically calls the bad figure *"the chief concern"*. **Sporting Life supplies them
+> at ~1.4% of reads**, so the rule is operational again: measured on the 14 Aug card, **5 of 360
+> reads contained an excuse phrase, 2 were in scope, and exactly 1 passed guard (ii) — about one
+> runner per card.** Small and controlled, and it only matters when the horse is already near the
+> line.
+>
+> **⚠ THE COST OF THE MISDIRECTION, 13 Aug 2026 — this is why it changed.** **City Of Poets**
+> (Windsor 19:41, C3, scored **60.6**, our 5th of 8). Sporting Life: *"Couldn't get involved having
+> been **slowly away and lacked a clean run** when tenth of 14 at Sandown … **dropped in grade**."*
+> Both phrases are verbatim on the qualifying list below; his form `-39410` has a **WIN immediately
+> before** that single poor run, so guard (ii) passes; Class 3 is in scope. **Rule 18 should have
+> lifted him — and did not, because it pointed at the generated text, which said "the chief concern
+> is his unplaced effort last time". HE WON AT 4/1.**
+>
+> **SOURCE RULE: the excuse must come from the ★ Sporting Life (human) line. NEVER from the generated
+> API Spotlight, and never inferred when there is no Sporting Life read at all.** Do NOT compensate
+> by loosening the trigger — the three guards below (specific and present, single most-recent run
+> only, scope) are what stop this becoming a licence to promote any horse with one bad run, and
+> inventing signals the data does not contain is the additive-edge trap. **Rule 18b — the
+> DETERMINISTIC higher-class version in `scorer.py` — is unaffected either way**; it reads
+> `recent_results` class tiers and beaten margins, not prose.
 
 ```
 The "Spotlight overrides figures" rule cuts BOTH ways. The rule above
