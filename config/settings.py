@@ -528,11 +528,19 @@ SPORTINGLIFE_TIMEOUT = float(os.getenv("SPORTINGLIFE_TIMEOUT", "12"))
 SPORTINGLIFE_DELAY = float(os.getenv("SPORTINGLIFE_DELAY", "0.4"))
 SPORTINGLIFE_BASE = "https://www.sportinglife.com/api/horse-racing"
 
-# ⚠ UNANSWERED BLOCKING QUESTION (13 Aug 2026) — default OFF, changes nothing.
-# Proposed: a NAP requires Sporting Life corroboration, expressing "the case is
-# stronger when they join up" SUBTRACTIVELY (harder to earn a NAP, never a
-# bigger stake). Lands on the NAP slot, which three separate measurements
-# identify as where we bleed. Sudbury Hill would have failed it on 13 Aug.
-# Do NOT enable without an explicit decision.
+# LIVE from 13 Aug 2026 (Paul: "Enable it"). A NAP requires Sporting Life
+# corroboration -- expressing "the case is stronger when they both join up"
+# SUBTRACTIVELY: it makes the NAP HARDER TO EARN and can never make a stake
+# bigger. Aimed at the NAP slot, which three independent measurements identify
+# as where the ledger bleeds. Enforced by analyst.py CHECK 19.
+#
+# "Corroboration" is NOT mere presence -- 253 of 269 runners on the 13 Aug card
+# carried a comment, so presence alone would never fire. It means the HUMAN read
+# does not undermine the pick (see _SL_DISQUALIFYING).
+#
+# FAILS OPEN BY CONSTRUCTION: on a Sporting Life outage no runner has a comment,
+# so the check is inert. A third-party website can never cost us a NAP.
+# Calibrated on 269 real runners: fires on 6.7% of all, 2 of 6 scoring 75+.
+# Revert: NAP_REQUIRES_SL_CORROBORATION=false.
 NAP_REQUIRES_SL_CORROBORATION = os.getenv(
-    "NAP_REQUIRES_SL_CORROBORATION", "false").lower() == "true"
+    "NAP_REQUIRES_SL_CORROBORATION", "true").lower() == "true"

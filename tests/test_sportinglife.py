@@ -124,5 +124,104 @@ chk("fetcher stores only commentary + insights",
 chk("fetcher does not assign odds onto any runner",
     ".odds =" not in sl_block)
 
+print("\n7. CHECK 19 — NAP REQUIRES SPORTING LIFE CORROBORATION")
+
+from src.scorer import RunnerScore  # noqa: E402
+
+
+def _lookup(*pairs):
+    """scored_lookup keyed by lowercased horse name, as the gate expects.
+
+    ⚠ `total` MUST be set to match the LLM's adjusted_score. RunnerScore
+    defaults total=0, and the ANCHOR CLAMP (CHECK 0) then pins any LLM score to
+    the rubric anchor +14 -- so a 79.1 becomes 14, the NAP is blocked for
+    scoring under 75, and CHECK 19 never runs at all. That produced two FALSE
+    PASSES on the first build of this suite: the gate appeared to block the
+    founding case when in fact the clamp had already killed the NAP.
+    """
+    out = {}
+    for name, sl, total in pairs:
+        r = Runner(name=name)
+        r.sl_comment = sl
+        out[name.lower()] = RunnerScore(runner=r, total=total)
+    return out
+
+
+def _run(sels, nap_idx, lookup):
+    d = {"selections": sels, "nap_index": nap_idx, "compliance_log": []}
+    return A._enforce_compliance(d, lookup, {})
+
+
+NAP = [{"horse": "Sudbury Hill", "odds_guide": "10/1", "adjusted_score": 79.1,
+        "each_way": True, "next_best": {}},
+       {"horse": "Auld Toon Loon", "odds_guide": "7/2", "adjusted_score": 72.4,
+        "each_way": True, "next_best": {}}]
+
+_orig = A.NAP_REQUIRES_SL_CORROBORATION
+try:
+    A.NAP_REQUIRES_SL_CORROBORATION = False
+    out = _run([dict(s) for s in NAP], 0,
+               _lookup(("Sudbury Hill", "Vulnerable off 3 lb higher.", 79.1),
+                       ("Auld Toon Loon", "Cheekpieces now go on.", 72.4)))
+    chk("flag OFF: NAP survives even a damning SL read (no-regression)",
+        out["nap_index"] == 0)
+
+    A.NAP_REQUIRES_SL_CORROBORATION = True
+
+    # The founding case.
+    out = _run([dict(s) for s in NAP], 0,
+               _lookup(("Sudbury Hill",
+                        "Cheekpieces on first time when narrowly resuming "
+                        "winning ways in 4-runner C&D handicap latest. "
+                        "Vulnerable off 3 lb higher in a better race.", 79.1),
+                       ("Auld Toon Loon", "Cheekpieces now go on.", 72.4)))
+    chk("BLOCKS the founding case (Sudbury Hill, 'vulnerable')",
+        out["nap_index"] == -1)
+    chk("blocking is explained in the compliance log",
+        any("SL CORROBORATION" in f for f in out.get("compliance_log", [])))
+    chk("the selection itself is NOT dropped, only demoted",
+        len(out["selections"]) == 2)
+
+    # A supportive read must survive.
+    out = _run([dict(s) for s in NAP], 0,
+               _lookup(("Sudbury Hill",
+                        "Far from exposed on just her second start over 1.5m "
+                        "and could run another big race off only 2 lb higher.", 79.1),
+                       ("Auld Toon Loon", "Cheekpieces now go on.", 72.4)))
+    chk("PASSES a supportive read (Rossa Raheen wording)", out["nap_index"] == 0)
+
+    # Absence of a read, when SL is demonstrably working, is not corroboration.
+    out = _run([dict(s) for s in NAP], 0,
+               _lookup(("Sudbury Hill", "", 79.1),
+                       ("Auld Toon Loon", "Cheekpieces now go on.", 72.4)))
+    chk("blocks when SL worked but this horse has no read",
+        out["nap_index"] == -1)
+
+    # ⭐ FAIL OPEN: total outage => nobody has a comment => gate is inert.
+    out = _run([dict(s) for s in NAP], 0,
+               _lookup(("Sudbury Hill", "", 79.1), ("Auld Toon Loon", "", 72.4)))
+    chk("FAILS OPEN on a total SL outage (NAP survives)", out["nap_index"] == 0)
+
+    # No NAP to begin with => nothing to do.
+    out = _run([dict(s) for s in NAP], -1,
+               _lookup(("Sudbury Hill", "Vulnerable.", 79.1),
+                       ("Auld Toon Loon", "Cheekpieces now go on.", 72.4)))
+    chk("no-NAP day is untouched", out["nap_index"] == -1)
+
+    # Ambiguous wording deliberately excluded from the list.
+    out = _run([dict(s) for s in NAP], 0,
+               _lookup(("Sudbury Hill", "Hard to see him being far away.", 79.1),
+                       ("Auld Toon Loon", "x", 72.4)))
+    chk("'hard to see' does NOT block (reverses in context)",
+        out["nap_index"] == 0)
+    out = _run([dict(s) for s in NAP], 0,
+               _lookup(("Sudbury Hill",
+                        "Not certain to stay this longer trip but is respected.", 79.1),
+                       ("Auld Toon Loon", "x", 72.4)))
+    chk("'not certain to stay ... but is respected' does NOT block",
+        out["nap_index"] == 0)
+finally:
+    A.NAP_REQUIRES_SL_CORROBORATION = _orig
+
 print(f"\nRESULT: {sum(results)}/{len(results)} passed")
 sys.exit(0 if all(results) else 1)

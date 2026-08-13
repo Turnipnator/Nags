@@ -28,6 +28,7 @@ from config.settings import (
     GOING_DETAILED_REAL_FIELD, EW_REQUIRE_PLACE_MARKET,
     EW_MIN_RUNNERS_FOR_PLACE, CLASS_FLOOR_BLOCKS_UNCLASSED,
     GOING_VOLATILITY_SPATIAL_PHRASES, SPORTINGLIFE_ENABLED,
+    NAP_REQUIRES_SL_CORROBORATION,
 )
 from src.scraper import Runner, Race, Meeting, Scraper
 from src.scorer import RunnerScore, Scorer
@@ -304,6 +305,30 @@ def _exceeds_nb_cap(odds_str: str) -> bool:
     dec = _parse_odds_to_decimal(odds_str)
     return dec > NB_MAX_DECIMAL
 
+
+
+# Sporting Life HUMAN-analyst language that disqualifies a horse from the NAP
+# slot (CHECK 19, added 13 Aug 2026). Unlike the Racing API's generated
+# comments -- whose "hard to fancy" is merely a rendering of a low rating rank
+# and cost us Supreme King at 4/1 on 12 Aug -- these are a person's verdict.
+#
+# Deliberately confined to UNAMBIGUOUS language. "hard to see" is excluded: it
+# reverses meaning in context ("hard to see him beaten"). "not certain to stay"
+# is excluded: Sporting Life routinely softens it ("not certain to stay this
+# longer trip BUT IS RESPECTED"). Errors here are one-directional and cheap --
+# a false positive costs a NAP (2pt -> flat stakes), never a bet.
+#
+# Zero-firing entries are KEPT on purpose. Per the 5 Aug going-gate lesson,
+# frequency is not the test, SEMANTICS is: a phrase that genuinely disqualifies
+# earns its place however rarely it appears.
+_SL_DISQUALIFYING = (
+    "vulnerable", "well held", "opposable", "one to oppose",
+    "hard to fancy", "hard to recommend", "hard to have",
+    "best watched", "others preferred", "prefer others",
+    "much to prove", "plenty to prove", "lot to prove",
+    "out of sorts", "struggling", "looks exposed",
+    "not the answer", "tough ask", "stiff ask",
+)
 
 # Spotlight gate phrases for value-swap rule (added 27 Apr 2026 after
 # Diamondsinthesand "ideally needs further" UP and Nakaaha "may prove
@@ -1319,6 +1344,58 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                     f"SYSTEM-RESISTANT: {sel['horse']} in {race_name} — NAP removed, E/W only"
                 )
                 logger.info(f"Compliance: System-resistant race, NAP removed for {sel['horse']}")
+
+    # CHECK 19: NAP REQUIRES SPORTING LIFE CORROBORATION (added 13 Aug 2026)
+    #
+    # Paul: "if they both join up, the case is even stronger." This cashes that
+    # out SUBTRACTIVELY -- it makes a NAP HARDER TO EARN and can never make a
+    # stake bigger. It is aimed squarely at the NAP slot, which three
+    # independent measurements identify as where the ledger bleeds.
+    #
+    # "Corroboration" cannot mean "a comment exists" -- 253 of 269 runners on
+    # the 13 Aug card had one, so presence alone would never fire. It means the
+    # HUMAN read does not undermine the pick.
+    #
+    # FAILS OPEN BY CONSTRUCTION: if the Sporting Life fetch failed, NO runner
+    # carries a comment, `sl_available` is False and this check does nothing.
+    # A third-party outage must never cost us a NAP.
+    #
+    # Founding case (13 Aug 2026): Sudbury Hill, deterministic 79.1, top score
+    # of the day and a 4pt NAP. Racing API (generated) called him "a strong
+    # contender". Sporting Life: "Cheekpieces on first time when narrowly
+    # resuming winning ways in 4-runner C&D handicap latest. VULNERABLE off
+    # 3 lb higher in a better race." Verified: RUNNERS=4, OR 77->80,
+    # headgear_run now 2, and his only competitive Flat run was 12th of 14
+    # beaten 28.25L. This gate blocks that NAP.
+    #
+    # Calibrated on the full 13 Aug corpus (269 runners): fires on 6.7% of all
+    # runners and on 2 of 6 scoring 75+. Selective, not a blanket.
+    if NAP_REQUIRES_SL_CORROBORATION:
+        sl_available = any(
+            getattr(sr.runner, "sl_comment", "") for sr in scored_lookup.values()
+        )
+        nap_idx = selections.get("nap_index", -1)
+        if sl_available and nap_idx is not None and 0 <= nap_idx < len(sels):
+            nap_horse = sels[nap_idx].get("horse", "")
+            sr = scored_lookup.get(nap_horse.lower())
+            sl_text = (getattr(sr.runner, "sl_comment", "") if sr else "") or ""
+            hits = [p for p in _SL_DISQUALIFYING if p in sl_text.lower()]
+            if not sl_text:
+                selections["nap_index"] = -1
+                compliance_fixes.append(
+                    f"NAP NEEDS SL CORROBORATION: no Sporting Life read for "
+                    f"{nap_horse}. Demoted — flat stakes day, no NAP"
+                )
+                logger.info("Compliance: NAP %s has no SL comment", nap_horse)
+            elif hits:
+                selections["nap_index"] = -1
+                compliance_fixes.append(
+                    f"NAP NEEDS SL CORROBORATION: Sporting Life undermines "
+                    f"{nap_horse} ({', '.join(hits)}). Demoted — flat stakes "
+                    f"day, no NAP"
+                )
+                logger.info("Compliance: SL blocked NAP %s on %s",
+                            nap_horse, hits)
 
     # CHECK 14: RACING API NAP CROSS-CHECK (confirmation-only — added 16 Jun 2026)
     # The Racing API now serves its own per-race machine selection (`api_tip`).
