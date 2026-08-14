@@ -18,6 +18,7 @@ from typing import Optional
 
 import httpx
 
+from src.clock import london_today
 from config.settings import (
     RACING_API_USERNAME, RACING_API_PASSWORD, VALID_COURSES, NR_PRICE_ONLY,
     SPORTINGLIFE_ENABLED, SPORTINGLIFE_TIMEOUT, SPORTINGLIFE_DELAY,
@@ -338,7 +339,7 @@ class Scraper:
     def get_todays_meetings(self, target_date: date = None) -> list[dict]:
         """Get today's UK/Irish meetings from the Racing API."""
         if target_date is None:
-            target_date = date.today()
+            target_date = london_today()
 
         day_param = self._get_day_param(target_date)
         qs = f"?{day_param}" if day_param else ""
@@ -399,7 +400,7 @@ class Scraper:
     def fetch_all_uk_irish_races(self, target_date: date = None, focus_courses: list[str] = None) -> list[Meeting]:
         """Fetch UK/Irish meetings in one API call. Optionally filter to specific courses."""
         if target_date is None:
-            target_date = date.today()
+            target_date = london_today()
 
         day_param = self._get_day_param(target_date)
         qs = f"?{day_param}" if day_param else ""
@@ -761,7 +762,7 @@ class Scraper:
         which is the basic endpoint's format). Returns an empty string for
         today (endpoint defaults to today when no param is provided).
         Updated 24 Apr 2026 when scraper switched to /pro for odds data."""
-        today = date.today()
+        today = london_today()
         if target_date == today:
             return ""
         return f"date={target_date.isoformat()}"

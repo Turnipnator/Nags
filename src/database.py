@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import sqlite3
+from src.clock import london_today, london_stamp
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
@@ -128,15 +129,15 @@ def supersede_todays_selections() -> int:
     been settled it was a real, resolved bet and superseding it would silently
     rewrite history. Those rows stay live and still count toward the ledger.
     """
-    now = datetime.now().isoformat(timespec="seconds")
+    now = london_stamp()
     cur = _conn.execute(
         """UPDATE selections
               SET superseded_at = ?
-            WHERE date(created_at) = date('now')
+            WHERE date(created_at) = ?
               AND superseded_at IS NULL
               AND source = 'bot'
               AND id NOT IN (SELECT selection_id FROM results)""",
-        (now,),
+        (now, london_today().isoformat()),
     )
     _conn.commit()
     return cur.rowcount
@@ -221,8 +222,9 @@ def _save_selection(meeting_id: int, sel: dict, sel_type: str, stake: float):
     _conn.execute(
         """INSERT INTO selections
            (meeting_id, race_time, race_name, horse, selection_type,
-            odds_guide, each_way, stake_pts, reasoning, confidence, danger, score)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            odds_guide, each_way, stake_pts, reasoning, confidence, danger, score,
+            created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             meeting_id,
             sel.get("race_time", ""),
@@ -420,7 +422,7 @@ def save_result(selection_id: int, finish_pos: int, result: str,
 
 def get_todays_selections() -> Optional[str]:
     """Get formatted selections for today."""
-    today = date.today().isoformat()
+    today = london_today().isoformat()
     rows = _conn.execute(
         """SELECT s.* FROM selections s
            JOIN meetings m ON s.meeting_id = m.id
@@ -437,7 +439,7 @@ def get_todays_selections() -> Optional[str]:
 
 def get_todays_nap() -> Optional[str]:
     """Get today's NAP."""
-    today = date.today().isoformat()
+    today = london_today().isoformat()
     row = _conn.execute(
         """SELECT s.* FROM selections s
            JOIN meetings m ON s.meeting_id = m.id
@@ -461,7 +463,7 @@ def get_todays_nap() -> Optional[str]:
 
 def get_todays_next_best() -> Optional[str]:
     """Get today's Next Best."""
-    today = date.today().isoformat()
+    today = london_today().isoformat()
     row = _conn.execute(
         """SELECT s.* FROM selections s
            JOIN meetings m ON s.meeting_id = m.id

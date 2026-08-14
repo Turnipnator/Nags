@@ -32,6 +32,7 @@ from config.settings import (
     FILTER_POSBLOCK_SHADOW, POSBLOCK_FLAG_AT,
     PASTPOST_FILTER_ENABLED, PASTPOST_BUFFER_MINUTES,
 )
+from src.clock import london_today, london_now
 from src.scraper import Runner, Race, Meeting, Scraper
 from src.scorer import RunnerScore, Scorer
 
@@ -603,7 +604,7 @@ def _check_going_drift(course: str, current_going: str,
     Snapshots older than 12 hours are ignored (treated as fresh)."""
     import datetime
     if date_str is None:
-        date_str = datetime.date.today().isoformat()
+        date_str = london_today().isoformat()
     key = f"{date_str}_{(course or '').lower()}"
     snapshot = _load_going_snapshot()
     prior = snapshot.get(key)
@@ -697,7 +698,7 @@ def _is_system_resistant_race(race_name: str, num_runners: int,
     # Newmarket 15:00 (Startled 15/2) — two shock winners same day in
     # exactly this race type. Form compressed, sighting runs, handicapper
     # is guessing too.
-    today_month = datetime.date.today().month
+    today_month = london_today().month
     is_early_season = today_month in (3, 4, 5)
     is_3yo_only = "3yo" in name_lower or "3-y-o" in name_lower or "3-y-o" in type_lower or "3yo" in type_lower
     is_handicap = "handicap" in name_lower or "handicap" in type_lower

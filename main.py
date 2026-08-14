@@ -25,6 +25,7 @@ from config.settings import TIMEZONE, ANALYSIS_TIME, RESULTS_TIME, LOG_LEVEL, AN
 from src.database import init_db, save_meeting, save_selections, is_bot_paused, _set_state, _get_state
 from src.scraper import Scraper
 from src.analyst import analyse_all_meetings, format_selections_telegram
+from src.clock import london_today
 from src.telegram_bot import create_app, send_message
 
 logger = logging.getLogger(__name__)
@@ -90,7 +91,7 @@ async def run_daily_pipeline(focus_courses: list[str] = None, n_races: int = Non
         logger.info("STARTING CHERRY-PICK PIPELINE — ALL MEETINGS")
     logger.info("=" * 60)
 
-    today = date.today()
+    today = london_today()
     scraper = Scraper()
 
     try:
@@ -311,7 +312,7 @@ async def run_results_check():
         return
 
     logger.info("Running auto-results check...")
-    today = date.today()
+    today = london_today()
     scraper = Scraper()
 
     try:
@@ -337,10 +338,11 @@ async def run_results_check():
             """SELECT id, horse, race_time, selection_type, odds_guide, stake_pts, each_way
                FROM selections
                WHERE race_time != ''
-                 AND date(created_at) = date('now')
+                 AND date(created_at) = ?
                  AND superseded_at IS NULL
                  AND id NOT IN (SELECT selection_id FROM results)
-               ORDER BY race_time"""
+               ORDER BY race_time""",
+            (london_today().isoformat(),),
         ).fetchall()
 
         if not rows:
