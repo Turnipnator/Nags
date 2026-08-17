@@ -133,7 +133,42 @@ HIGHSCORE_DEMOTE_AT = float(os.getenv("HIGHSCORE_DEMOTE_AT", "85.0"))
 # In the data that exemption is exactly backwards. Premium earns its keep at
 # 4/1+ (+75%, n=17 -- suggestive only, NOT acted on).
 # Action is DEMOTE to race-SEL stake, never DROP: these still win ~17%.
-FILTER_SHORTNAP_ENABLED = os.getenv("FILTER_SHORTNAP_ENABLED", "true").lower() == "true"
+#
+# ⛔ RETIRED 17 Aug 2026 AT ITS SCHEDULED REVIEW — default flipped true -> false.
+# It was SHADOW-ONLY throughout, so no selection and no stake changes; this
+# only stops logging a filter we have now decided against.
+#
+# THE PREMISE DID NOT REPRODUCE. Measured three times on the same cell:
+#     19 Jul  -40.2% (n=29)   ->   11 Aug  -39.5% (n=39)   ->   17 Aug  +5.8% (n=40)
+# The 17 Aug derivation joins the ledger to the results harvest so class/pattern
+# are authoritative rather than keyword-guessed, and excludes VOID rows from the
+# denominator (a void returns the stake; it is not a bet outcome). It is shown
+# bet-by-bet. The 11 Aug script was ephemeral and cannot be reconciled -- and
+# that irreconcilability IS the finding: a cell whose measured ROI moves ~45
+# points with methodology at n~40 cannot carry a filter.
+#
+# FRAGILITY: dropping ONE bet (Indemnity, +18.75pt) takes the cell +5.8% -> -12.8%.
+# CI is [-49.5%, +57.0%] -- 106 points wide. By month: +92 / +12 / +9 / -27 / -100.
+#
+# SHADOW WINDOW (the actual pre-registered criterion -- "promote only if the
+# horses it flagged genuinely underperformed"): 11 NAPs in 4 weeks, -26.6%.
+# They did underperform -- but on a 27.3% strike rate against 15.5% system-wide
+# in the same window, and the 3 winners include Pershaada 3/1 Gp3 (+7.20pt) and
+# Soul Love (+3.90). Highest-strike band, losing on PRICE, demoting winners:
+# that is precisely the shape F1 was retired for six days earlier.
+#
+# A DEMOTE can only cut exposure, never improve ROI. With no reliably negative
+# cell to cut, there is nothing for it to do.
+#
+# WIDENING (the 16 Aug review question -- extend slot-agnostically to all
+# premium sub-4/1, n=172): NO. It is the only cut here whose CI excludes zero,
+# but ONLY in the holdout (-30.7%) while discovery is +13.4%. An effect that
+# reverses sign across the split is a regime change, not an effect -- and that
+# regime is visible system-wide (Aug -32.9%), not in premium short prices.
+#
+# Revert = FILTER_SHORTNAP_ENABLED=true (returns to SHADOW, since
+# FILTER_SHORTNAP_SHADOW still defaults true).
+FILTER_SHORTNAP_ENABLED = os.getenv("FILTER_SHORTNAP_ENABLED", "false").lower() == "true"
 FILTER_SHORTNAP_SHADOW = os.getenv("FILTER_SHORTNAP_SHADOW", "true").lower() == "true"
 SHORTNAP_MIN_ODDS = float(os.getenv("SHORTNAP_MIN_ODDS", "4.0"))  # fractional
 
