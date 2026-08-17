@@ -173,6 +173,52 @@ FILTER_SHORTNAP_SHADOW = os.getenv("FILTER_SHORTNAP_SHADOW", "true").lower() == 
 SHORTNAP_MIN_ODDS = float(os.getenv("SHORTNAP_MIN_ODDS", "4.0"))  # fractional
 
 # ---------------------------------------------------------------------------
+# STAKE LADDER (flattened 17 Aug 2026 -- was 2.0 / 1.5 / 1.0 / 0.5)
+#
+# The NAP and NB-of-day slots are where the money goes. All-time, 750 settled
+# bot bets (voids/NRs/junk race_name rows excluded):
+#
+#     nap         n=93   -43.87pt   -14.7%   win 18.3%
+#     next_best   n=105  -31.15pt   -12.9%   win 19.0%
+#     selection   n=175   -6.23pt    -2.1%   win 18.9%
+#     race_nb     n=377  +12.86pt    +4.0%   win 17.0%
+#
+# The two premium slots lost 75pt; everything else made +6.6pt. ⭐ AND ALL FOUR
+# SLOTS WIN AT THE SAME RATE -- the NAP does not win more often than a 0.5pt
+# cover bet, it is simply priced shorter and staked 4x. Paired bootstrap on
+# per-bet return: premium MINUS rest = -10.98%, 95% CI [-15.80, -6.43], and
+# nap MINUS race_nb = -15.65%, CI [-23.28, -7.11]. BOTH EXCLUDE ZERO.
+#
+# Counterfactual ROI (pnl_pts scales linearly with stake_pts, so exact):
+#                         full      discovery   HOLDOUT    last 60d
+#   2.0/1.5/1.0/0.5      -5.91%      -6.69%     -4.95%      -1.17%
+#   1.0/1.0/1.0/0.5      -3.89%      -6.36%     -0.66%      +3.78%   <-- shipped
+# Direction holds in BOTH halves, unlike the four raw-scorer segment findings
+# that inverted on real picks.
+#
+# ⚠ PURELY SUBTRACTIVE: this can only lower a stake, never raise one. Total
+# staked falls ~20%. A fully-flat ladder (race_nb 0.5 -> 1.0) measured better
+# still but ADDS money at risk and was rejected on that principle; halving the
+# premium slots, or removing them, measured better again but acts on n=93/105
+# and changes what the bot IS rather than how it stakes.
+#
+# ⚠ selection_type is NOT touched. The Betfair bot reads selection_type (for
+# per-race priority) and its OWN flat constants (BACK_FLAT_STAKE=5.0,
+# PLACE_FLAT_STAKE=2.0) -- it never selects stake_pts, so the exchange has been
+# staking flat across all four slots all along and is unaffected by this. The
+# ladder lives only in the Nags ledger and on the card Paul reads.
+#
+# Review 14 Sep 2026. Revert = set the four env vars back to 2.0/1.5/1.0/0.5.
+STAKE_NAP = float(os.getenv("STAKE_NAP", "1.0"))
+STAKE_NB_OF_DAY = float(os.getenv("STAKE_NB_OF_DAY", "1.0"))
+STAKE_SELECTION = float(os.getenv("STAKE_SELECTION", "1.0"))
+STAKE_RACE_NB = float(os.getenv("STAKE_RACE_NB", "0.5"))
+# Applied LAST, overriding the slot stake, when a compliance check sets
+# `nb_price_capped` (NB field-size floor, price cap, NB score floor, F2, going
+# gate). Unchanged from the 28 Jul 2026 fix.
+STAKE_DEMOTED = float(os.getenv("STAKE_DEMOTED", "0.75"))
+
+# ---------------------------------------------------------------------------
 # F4 TOP-2 PRICE RED FLAG — SHADOW ONLY (added 10 Aug 2026)
 # ---------------------------------------------------------------------------
 # Flags a race where, among BETABLE runners (above evens), our top deterministic

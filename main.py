@@ -21,7 +21,11 @@ from zoneinfo import ZoneInfo
 
 import schedule
 
-from config.settings import TIMEZONE, ANALYSIS_TIME, RESULTS_TIME, LOG_LEVEL, ANTHROPIC_API_KEY, FOCUS_COURSES, AUTO_SCHEDULE, AUTO_RESULTS, DAILY_CARD_REPLACE_ENABLED
+from config.settings import (
+    TIMEZONE, ANALYSIS_TIME, RESULTS_TIME, LOG_LEVEL, ANTHROPIC_API_KEY,
+    FOCUS_COURSES, AUTO_SCHEDULE, AUTO_RESULTS, DAILY_CARD_REPLACE_ENABLED,
+    STAKE_NAP, STAKE_NB_OF_DAY, STAKE_SELECTION, STAKE_RACE_NB, STAKE_DEMOTED,
+)
 from src.database import init_db, save_meeting, save_selections, is_bot_paused, _set_state, _get_state
 from src.scraper import Scraper
 from src.analyst import analyse_all_meetings, format_selections_telegram
@@ -215,10 +219,21 @@ def _save_cherry_picks(today: date, selections: dict):
             sel_type = "next_best"
         else:
             sel_type = "selection"
-        # No NAP (nap_idx == -1) means flat 1pt stakes across all selections
-        stake = 2.0 if sel_type == "nap" else 1.5 if sel_type == "next_best" else 1.0
+        # Stake ladder, config-driven since 17 Aug 2026 (was hardcoded
+        # 2.0/1.5/1.0). Flattened to 1.0/1.0/1.0 because the NAP and NB-of-day
+        # slots lost 75pt all-time while selection+race_nb made +6.6pt, and all
+        # four slots win at the SAME rate -- see config/settings.py for the
+        # measurement. selection_type is deliberately UNCHANGED.
+        stake = (
+            STAKE_NAP if sel_type == "nap"
+            else STAKE_NB_OF_DAY if sel_type == "next_best"
+            else STAKE_SELECTION
+        )
+        # No NAP (nap_idx == -1) means flat stakes across all selections. With
+        # a flattened ladder this is a no-op for top-level picks; kept because
+        # it must still hold if the ladder is ever reverted via env.
         if nap_idx < 0:
-            stake = 1.0  # Flat stakes when no NAP qualifies (nothing scored 78+)
+            stake = STAKE_SELECTION
         # Compliance demote: the NB field-size floor, price cap, NB score floor,
         # F2/F3 and the going gate all set `nb_price_capped` to mean "treat as a
         # 0.75pt race SEL stake, not the 1.5/2.0 type stake". This was set in the
@@ -229,7 +244,7 @@ def _save_cherry_picks(today: date, selections: dict):
         # it wins over the type/flat stake. each_way is already forced by the
         # gate where a place pool exists, so the 0.75 captures the place leg.
         if sel.get("nb_price_capped"):
-            stake = 0.75
+            stake = STAKE_DEMOTED
         each_way = sel.get("each_way", False)
 
         reasoning = sel.get("reasoning", [])
@@ -274,7 +289,7 @@ def _save_cherry_picks(today: date, selections: dict):
                     "race_nb",
                     rnb.get("odds_guide", ""),
                     nb_ew,
-                    0.5 * (2 if nb_ew else 1),
+                    STAKE_RACE_NB * (2 if nb_ew else 1),
                     rnb.get("reasoning", ""),
                     "",
                     "",
