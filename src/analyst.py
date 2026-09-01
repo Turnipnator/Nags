@@ -1413,6 +1413,15 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
     # FAILS OPEN BY CONSTRUCTION: if the Sporting Life fetch failed, NO runner
     # carries a comment, `sl_available` is False and this check does nothing.
     # A third-party outage must never cost us a NAP.
+    # ⚠ PARTIAL FETCH (fixed 1 Sep 2026): that guarantee only held for a TOTAL
+    # outage. fetch_sportinglife pulls race pages one at a time, and a single
+    # page failure ("Sporting Life partial: N fetched, M failed") leaves ONE
+    # race blank while the rest are populated. The old card-wide test then
+    # read the site as "working" and demoted a NAP in the blank race for
+    # having no read -- a website hiccup counted as evidence against the
+    # horse. Availability is now tested against the NAP's OWN race (found via
+    # the 27 Aug security review; the one Nags finding that survived
+    # verification).
     #
     # Founding case (13 Aug 2026): Sudbury Hill, deterministic 79.1, top score
     # of the day and a 4pt NAP. Racing API (generated) called him "a strong
@@ -1425,10 +1434,33 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
     # Calibrated on the full 13 Aug corpus (269 runners): fires on 6.7% of all
     # runners and on 2 of 6 scoring 75+. Selective, not a blanket.
     if NAP_REQUIRES_SL_CORROBORATION:
-        sl_available = any(
+        nap_idx = selections.get("nap_index", -1)
+        card_has_sl = any(
             getattr(sr.runner, "sl_comment", "") for sr in scored_lookup.values()
         )
-        nap_idx = selections.get("nap_index", -1)
+        sl_available = card_has_sl
+        # Scope to the NAP's own race (1 Sep 2026, see header). If no runner
+        # in THAT race carries a comment, its page did not arrive: fail open
+        # for it, loudly. A fetched race whose NAP horse is merely unmatched
+        # still has reads on its rivals, so that case still demotes
+        # (unchanged). Unresolvable race => card-wide test (never guess).
+        if nap_idx is not None and 0 <= nap_idx < len(sels):
+            nap_meta = _resolve_race_meta(sels[nap_idx], race_meta_lookup) or {}
+            race_keys = [n for n, _ in (nap_meta.get("runners") or [])]
+            if race_keys:
+                sl_available = any(
+                    getattr(scored_lookup[n].runner, "sl_comment", "")
+                    for n in race_keys if n in scored_lookup
+                )
+                if card_has_sl and not sl_available:
+                    nap_horse = sels[nap_idx].get("horse", "")
+                    where = f"{nap_meta.get('course', '')} {nap_meta.get('race_time', '')}".strip()
+                    compliance_fixes.append(
+                        f"SL PARTIAL: no Sporting Life read for {where} "
+                        f"(page not fetched) — NAP {nap_horse} kept unverified"
+                    )
+                    logger.warning("Compliance: SL partial fetch, %s has no reads; "
+                                   "NAP %s kept unverified", where, nap_horse)
         if sl_available and nap_idx is not None and 0 <= nap_idx < len(sels):
             nap_horse = sels[nap_idx].get("horse", "")
             sr = scored_lookup.get(nap_horse.lower())

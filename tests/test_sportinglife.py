@@ -223,5 +223,93 @@ try:
 finally:
     A.NAP_REQUIRES_SL_CORROBORATION = _orig
 
+print("\n7b. CHECK 19 — PARTIAL FETCH IS SCOPED TO THE NAP'S OWN RACE (1 Sep 2026)")
+
+
+def _race(course, time, name, *runner_names):
+    """Mirror of the production race_meta_lookup entry (analyst.py ~2132)."""
+    return {
+        "num_runners": 8, "race_type": "Flat", "pattern": "", "distance": "1m",
+        "race_class": "Class 3", "course": course, "race_time": time,
+        "surface": "Turf", "going": "Good", "going_detailed": "", "api_tip": "",
+        "runners": [(n.lower(), 10.0) for n in runner_names],
+        "top2_flag": False,
+        "_name": name,
+    }
+
+
+def _meta(*races):
+    return {r["_name"].lower(): r for r in races}
+
+
+def _run_meta(sels, nap_idx, lookup, meta):
+    d = {"selections": sels, "nap_index": nap_idx, "compliance_log": []}
+    return A._enforce_compliance(d, lookup, meta)
+
+
+TWO_RACES = _meta(
+    _race("Windsor", "7:41", "Windsor Stakes", "Sudbury Hill", "Rival A"),
+    _race("Ayr", "7:00", "Ayr Stakes", "Auld Toon Loon", "Rival B"),
+)
+SELS2 = [
+    {"horse": "Sudbury Hill", "odds_guide": "10/1", "adjusted_score": 79.1,
+     "each_way": True, "next_best": {}, "course": "Windsor", "race_time": "7:41",
+     "race_name": "Windsor Stakes"},
+    {"horse": "Auld Toon Loon", "odds_guide": "7/2", "adjusted_score": 72.4,
+     "each_way": True, "next_best": {}, "course": "Ayr", "race_time": "7:00",
+     "race_name": "Ayr Stakes"},
+]
+
+_orig = A.NAP_REQUIRES_SL_CORROBORATION
+try:
+    A.NAP_REQUIRES_SL_CORROBORATION = True
+
+    # ⭐ THE BUG. Sporting Life served Ayr but the Windsor page failed
+    # ("Sporting Life partial: 1 races fetched, 1 failed"). Nobody at Windsor
+    # has a comment. That is a website hiccup, not evidence against the NAP.
+    partial = _lookup(("Sudbury Hill", "", 79.1), ("Rival A", "", 60.0),
+                      ("Auld Toon Loon", "Cheekpieces now go on.", 72.4),
+                      ("Rival B", "Handles the ground.", 58.0))
+    out = _run_meta([dict(s) for s in SELS2], 0, partial, TWO_RACES)
+    chk("PARTIAL: NAP's race page failed, other race fetched => NAP KEPT",
+        out["nap_index"] == 0)
+    chk("PARTIAL: ...and the output says so (fail open, loudly)",
+        any("SL PARTIAL" in f for f in out.get("compliance_log", [])))
+    chk("PARTIAL: no spurious 'NEEDS SL CORROBORATION' demotion",
+        not any("SL CORROBORATION" in f for f in out.get("compliance_log", [])))
+
+    # Race WAS fetched (rival has a read) but the NAP horse is unmatched:
+    # that is a join miss on a working page, and it must still demote.
+    unmatched = _lookup(("Sudbury Hill", "", 79.1), ("Rival A", "Has a read.", 60.0),
+                        ("Auld Toon Loon", "Cheekpieces now go on.", 72.4),
+                        ("Rival B", "x", 58.0))
+    out = _run_meta([dict(s) for s in SELS2], 0, unmatched, TWO_RACES)
+    chk("FETCHED-BUT-UNMATCHED: race has reads, NAP horse has none => still demoted",
+        out["nap_index"] == -1
+        and any("SL CORROBORATION" in f for f in out.get("compliance_log", [])))
+
+    # Disqualifying language inside a resolvable race still blocks.
+    damning = _lookup(("Sudbury Hill", "Vulnerable off 3 lb higher.", 79.1),
+                      ("Rival A", "x", 60.0),
+                      ("Auld Toon Loon", "Cheekpieces now go on.", 72.4),
+                      ("Rival B", "x", 58.0))
+    out = _run_meta([dict(s) for s in SELS2], 0, damning, TWO_RACES)
+    chk("DISQUALIFYING phrase with race meta => still demoted", out["nap_index"] == -1)
+
+    # Total outage with race meta => inert, and no partial note either.
+    outage = _lookup(("Sudbury Hill", "", 79.1), ("Rival A", "", 60.0),
+                     ("Auld Toon Loon", "", 72.4), ("Rival B", "", 58.0))
+    out = _run_meta([dict(s) for s in SELS2], 0, outage, TWO_RACES)
+    chk("TOTAL OUTAGE with race meta => NAP kept, no notes",
+        out["nap_index"] == 0
+        and not any("SL" in f for f in out.get("compliance_log", [])))
+
+    # No race meta at all (unresolvable) => card-wide test, i.e. old behaviour.
+    out = _run_meta([dict(s) for s in SELS2], 0, partial, {})
+    chk("UNRESOLVABLE race (no meta) => falls back to card-wide test (demoted, as before)",
+        out["nap_index"] == -1)
+finally:
+    A.NAP_REQUIRES_SL_CORROBORATION = _orig
+
 print(f"\nRESULT: {sum(results)}/{len(results)} passed")
 sys.exit(0 if all(results) else 1)
