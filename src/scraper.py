@@ -11,6 +11,7 @@ UK and Irish racing only (filtered client-side).
 
 import logging
 import re
+import threading
 import time as time_mod
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -22,7 +23,7 @@ from src.clock import london_today
 from config.settings import (
     RACING_API_USERNAME, RACING_API_PASSWORD, VALID_COURSES, NR_PRICE_ONLY,
     SPORTINGLIFE_ENABLED, SPORTINGLIFE_TIMEOUT, SPORTINGLIFE_DELAY,
-    SPORTINGLIFE_BASE, USER_AGENT,
+    SPORTINGLIFE_BASE, USER_AGENT, API_RATE_LIMIT_RPS, API_429_MAX_RETRIES,
 )
 
 logger = logging.getLogger(__name__)
@@ -225,6 +226,14 @@ class Scraper:
             timeout=httpx.Timeout(90.0, connect=15.0),
         )
         self.base_url = "https://api.theracingapi.com/v1"
+        # Process-wide pacing for every Racing API call (1 Sep 2026). Shared
+        # by the enrichment thread pool so 4 workers cannot exceed the
+        # endpoint's per-second limit between them.
+        self._pace_lock = threading.Lock()
+        self._next_call_at = 0.0
+        # Set by enrich_with_recent_classes; non-empty means histories are
+        # missing and the card notes must say so.
+        self.last_enrichment_status = ""
 
     # ------------------------------------------------------------------
     # SPORTING LIFE — human analyst commentary (added 13 Aug 2026)
@@ -563,6 +572,11 @@ class Scraper:
             return None
 
     def fetch_recent_race_classes(self, horse_id: str, limit: int = 3) -> list[dict]:
+        """Recent results for a horse; [] on any failure (contract unchanged)."""
+        return self._fetch_recent_race_classes_status(horse_id, limit)[0]
+
+    def _fetch_recent_race_classes_status(self, horse_id: str,
+                                          limit: int = 3) -> tuple[list[dict], bool]:
         """
         Fetch the most recent `limit` race results for a horse and return
         a compact list of {date, class_str, class_level, position, race_name}.
@@ -576,8 +590,10 @@ class Scraper:
         from src.scorer import CLASS_LEVELS_NH, CLASS_LEVELS_FLAT
         _to_float = self._to_float
         data = self._api_get(f"/horses/{horse_id}/results?limit={limit}")
-        if not data:
-            return []
+        if data is None:
+            # API failure (rate limit exhausted / timeout / error), NOT an
+            # empty history. Callers that count failures need the flag.
+            return [], False
         out = []
         for r in data.get("results", [])[:limit]:
             class_str = (r.get("class") or "").strip().lower()
@@ -637,7 +653,7 @@ class Scraper:
                 "dist_f": dist_f,
                 "btn_per_f": btn_per_f,
             })
-        return out
+        return out, True
 
     def enrich_with_recent_classes(self, meetings: list, limit: int = 3,
                                    max_workers: int = 4) -> None:
@@ -648,6 +664,7 @@ class Scraper:
         recent_results populated.
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
+        self.last_enrichment_status = ""
 
         candidates = []
         skipped_no_signal = 0
@@ -688,23 +705,43 @@ class Scraper:
 
         def _fetch(runner):
             try:
-                return runner, self.fetch_recent_race_classes(runner.horse_id, limit)
+                results, ok = self._fetch_recent_race_classes_status(
+                    runner.horse_id, limit)
+                return runner, results, ok
             except Exception as exc:
                 logger.debug(f"recent_classes fetch failed for {runner.name}: {exc}")
-                return runner, []
+                return runner, [], False
 
-        completed = 0
+        completed = with_history = empty = failed = 0
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = [pool.submit(_fetch, r) for r in runners]
             for fut in as_completed(futures):
-                runner, results = fut.result()
-                runner.recent_results = results
+                runner, results, ok = fut.result()
+                runner.recent_results = results   # [] on failure, as before
                 completed += 1
+                if not ok:
+                    failed += 1
+                elif results:
+                    with_history += 1
+                else:
+                    empty += 1
 
         elapsed = time_mod.time() - start
         logger.info(
-            f"Enriched {completed}/{len(runners)} runners in {elapsed:.1f}s"
+            f"Enriched {completed}/{len(runners)} runners in {elapsed:.1f}s: "
+            f"{with_history} histories, {empty} empty, {failed} FAILED "
+            f"(rate limit / timeout)"
         )
+        if failed:
+            # Surfaced in the card notes by main.py -- a missing history is a
+            # blind spot for Rule 18b and the class-drop kicker, and until
+            # 1 Sep 2026 it left no trace at all.
+            self.last_enrichment_status = (
+                f"Racing API enrichment incomplete: {failed} of {completed} "
+                f"runner histories missing (rate limit / timeout) — Rule 18b "
+                f"and the class-drop kicker are blind for those runners"
+            )
+            logger.warning(self.last_enrichment_status)
 
     def fetch_tips_and_previews(self, course: str, target_date: date) -> list[str]:
         """Spotlight comments from the API serve as our tips/previews."""
@@ -727,15 +764,34 @@ class Scraper:
         today" bug — a full card was on, the request just timed out once.
         """
         url = f"{self.base_url}{endpoint}"
-        for attempt in range(1, max_attempts + 1):
+        attempt = 1
+        rate_limited = 0
+        while attempt <= max_attempts:
             try:
-                resp = self.client.get(url)
+                resp = self._paced_get(url)
                 if resp.status_code == 200:
                     return resp.json()
                 elif resp.status_code == 429:
-                    logger.warning("Racing API rate limited, waiting 5s...")
-                    time_mod.sleep(5)
-                    continue  # retry within the attempt budget
+                    # 429s have their OWN budget (1 Sep 2026). Before, each one
+                    # burned one of the 3 attempts and exhaustion returned None
+                    # with no log line at all -- 913 of them between 10 Aug
+                    # and 1 Sep, and no way to know how many histories went
+                    # missing. Now: exponential back-off, and exhaustion SHOUTS.
+                    rate_limited += 1
+                    if rate_limited > API_429_MAX_RETRIES:
+                        logger.warning(
+                            f"Racing API rate limit EXHAUSTED after "
+                            f"{API_429_MAX_RETRIES} retries: {endpoint} "
+                            f"-- returning no data"
+                        )
+                        return None
+                    wait = min(2 ** rate_limited, 16)
+                    logger.warning(
+                        f"Racing API rate limited ({rate_limited}/"
+                        f"{API_429_MAX_RETRIES}), waiting {wait}s: {endpoint}"
+                    )
+                    time_mod.sleep(wait)
+                    continue  # does NOT consume a timeout attempt
                 logger.warning(f"Racing API {endpoint}: {resp.status_code}")
                 return None
             except (httpx.TimeoutException, httpx.TransportError) as e:
@@ -746,6 +802,7 @@ class Scraper:
                         f"retry {attempt}/{max_attempts - 1} in {wait}s"
                     )
                     time_mod.sleep(wait)
+                    attempt += 1
                     continue
                 logger.error(
                     f"Racing API error after {max_attempts} attempts: {e}"
@@ -755,6 +812,24 @@ class Scraper:
                 logger.error(f"Racing API error: {e}")
                 return None
         return None
+
+    def _paced_get(self, url: str):
+        """GET with a process-wide minimum interval between Racing API calls.
+
+        Reserves the next free slot under a lock, then sleeps OUTSIDE the lock
+        so parallel workers queue rather than serialise the network wait.
+        API_RATE_LIMIT_RPS <= 0 disables pacing (byte-identical old path).
+        """
+        if API_RATE_LIMIT_RPS > 0:
+            interval = 1.0 / API_RATE_LIMIT_RPS
+            with self._pace_lock:
+                now = time_mod.monotonic()
+                slot = max(now, self._next_call_at)
+                self._next_call_at = slot + interval
+            wait = slot - time_mod.monotonic()
+            if wait > 0:
+                time_mod.sleep(wait)
+        return self.client.get(url)
 
     def _get_day_param(self, target_date: date) -> str:
         """Return the /racecards/pro query string for a target date.

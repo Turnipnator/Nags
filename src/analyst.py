@@ -2231,6 +2231,21 @@ def _note_sl_status(selections: dict, sl_status: str) -> None:
     selections["notes"] = f"{warning}\n\n{existing}" if existing else warning
 
 
+def _note_enrichment_status(selections: dict, status: str) -> None:
+    """Surface incomplete Racing API enrichment in the OUTPUT (1 Sep 2026).
+
+    Same principle as _note_sl_status: when the card was built with runner
+    histories missing (rate limit / timeout), the reader is told which
+    blind spot that opens (Rule 18b, class-drop kicker) rather than the gap
+    living only in a log line nobody reads until something goes wrong.
+    """
+    if not status or not isinstance(selections, dict):
+        return
+    warning = f"⚠ {status}."
+    existing = (selections.get("notes") or "").strip()
+    selections["notes"] = f"{warning}\n\n{existing}" if existing else warning
+
+
 def _run_claude_judgement(top_races_data: list, meetings: list[Meeting],
                           tips_text: str, going_reports: dict,
                           n_races: int = None) -> dict:

@@ -29,7 +29,7 @@ from config.settings import (
 )
 from src.database import init_db, save_meeting, save_selections, is_bot_paused, _set_state, _get_state
 from src.scraper import Scraper
-from src.analyst import analyse_all_meetings, format_selections_telegram
+from src.analyst import analyse_all_meetings, format_selections_telegram, _note_enrichment_status
 from src.clock import london_today
 from src.telegram_bot import create_app, send_message
 
@@ -149,6 +149,11 @@ async def run_daily_pipeline(focus_courses: list[str] = None, n_races: int = Non
         selections = analyse_all_meetings(
             all_meetings, tips_text, going_reports, n_races=n_races
         )
+
+        # Incomplete enrichment goes INTO the card (1 Sep 2026). A silent
+        # data gap is the same failure shape as the 5 Jun fallback bug.
+        if selections and scraper.last_enrichment_status:
+            _note_enrichment_status(selections, scraper.last_enrichment_status)
 
         if not selections or not selections.get("selections"):
             note = selections.get("notes") if selections else None

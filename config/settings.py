@@ -344,6 +344,20 @@ DAILY_CARD_REPLACE_ENABLED = os.getenv(
 GOING_DETAILED_REAL_FIELD = os.getenv(
     "GOING_DETAILED_REAL_FIELD", "true").lower() == "true"
 NR_PRICE_ONLY = os.getenv("NR_PRICE_ONLY", "true").lower() == "true"
+
+# Racing API pacing (added 1 Sep 2026). The horse-results endpoint is limited
+# to 5 req/s on the Pro plan and enrichment ran 4 unpaced workers straight
+# into it: 913 HTTP 429s between 10 Aug and 1 Sep, in bursts of 150-244 per
+# card. Worse, an exhausted retry budget returned None SILENTLY -- the
+# runner's history was simply missing, and Rule 18b / the class-drop kicker
+# went blind for that horse with no trace anywhere. API_RATE_LIMIT_RPS spaces
+# every Racing API call process-wide (0 = unpaced, the pre-1-Sep behaviour);
+# API_429_MAX_RETRIES is a separate budget for 429s (back-off 2/4/8/16s) so a
+# rate-limit hit no longer burns one of the 3 timeout attempts. Exhaustion now
+# logs a WARNING, enrichment reports histories/empty/FAILED, and a failure
+# count > 0 is prepended to the card notes (see main.py).
+API_RATE_LIMIT_RPS = float(os.getenv("API_RATE_LIMIT_RPS", "4.0"))
+API_429_MAX_RETRIES = int(os.getenv("API_429_MAX_RETRIES", "6"))
 EW_REQUIRE_PLACE_MARKET = os.getenv(
     "EW_REQUIRE_PLACE_MARKET", "true").lower() == "true"
 EW_MIN_RUNNERS_FOR_PLACE = int(os.getenv("EW_MIN_RUNNERS_FOR_PLACE", "5"))
