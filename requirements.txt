@@ -6,7 +6,11 @@ beautifulsoup4>=4.12.0
 lxml>=5.1.0
 
 # Claude API (judgement analysis only - not used for scraping/parsing)
-anthropic>=0.40.0
+# PINNED 1 Sep 2026 to the version running in the VPS container. Dockerfile
+# re-installs on every rebuild, so an unpinned '>=' pulls whatever is newest
+# that day. The 27 Jul 2026 ThinkingBlock incident was exactly a client/model
+# behaviour change silently killing the judgement layer. Bump deliberately.
+anthropic==0.122.0
 
 # Telegram
 python-telegram-bot>=20.7

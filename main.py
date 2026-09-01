@@ -25,6 +25,7 @@ from config.settings import (
     TIMEZONE, ANALYSIS_TIME, RESULTS_TIME, LOG_LEVEL, ANTHROPIC_API_KEY,
     FOCUS_COURSES, AUTO_SCHEDULE, AUTO_RESULTS, DAILY_CARD_REPLACE_ENABLED,
     STAKE_NAP, STAKE_NB_OF_DAY, STAKE_SELECTION, STAKE_RACE_NB, STAKE_DEMOTED,
+    missing_required_env,
 )
 from src.database import init_db, save_meeting, save_selections, is_bot_paused, _set_state, _get_state
 from src.scraper import Scraper
@@ -512,6 +513,13 @@ async def main():
     """Main entry point."""
     setup_logging()
     logger.info("🏇 Horse Racing Bot starting (cherry-pick mode)...")
+    missing = missing_required_env()
+    if missing:
+        # Fail fast and name the gap. Added 1 Sep 2026 after the 27 Aug
+        # security review; verified the VPS .env carries all four before deploy.
+        logger.error("Missing required environment variables: %s -- refusing to start",
+                     ", ".join(missing))
+        sys.exit(1)
 
     lock_path = Path("/app/data/bot.lock") if os.path.exists("/app") else Path("data/bot.lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)

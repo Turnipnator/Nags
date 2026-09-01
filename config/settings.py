@@ -13,6 +13,25 @@ RACING_API_PASSWORD = os.getenv("RACING_API_PASSWORD")
 
 # Claude API (judgement analysis only - data comes from Racing API)
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+
+
+def missing_required_env() -> list[str]:
+    """Names of load-bearing env vars that are unset (added 1 Sep 2026).
+
+    Without these the bot starts "healthy" and then silently does nothing
+    useful: at chat_id 0 every Telegram message is unauthorised, and the
+    Racing API answers 401 to every call. main.py refuses to start when this
+    is non-empty. ANTHROPIC_API_KEY is deliberately NOT here -- the bot has an
+    explicit programmatic-only mode without it. Called from main.py only, so
+    scripts and tests that import settings are unaffected.
+    """
+    required = {
+        "TELEGRAM_TOKEN": TELEGRAM_TOKEN,
+        "TELEGRAM_CHAT_ID": TELEGRAM_CHAT_ID or None,
+        "RACING_API_USERNAME": RACING_API_USERNAME,
+        "RACING_API_PASSWORD": RACING_API_PASSWORD,
+    }
+    return [name for name, value in required.items() if not value]
 # Moved 4.6 → 4.8 on 1 Jun 2026. 4.6 was a deliberate roll-back from 4.7
 # (5 May 2026) because 4.7 inflated judgement-layer scores (Precise 104,
 # Star Prospect 88, Fairlawn Flyer 81 @ 22/1). 4.8 adopted with the now-
