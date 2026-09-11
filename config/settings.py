@@ -268,7 +268,16 @@ STAKE_DEMOTED = float(os.getenv("STAKE_DEMOTED", "0.75"))
 # REVIEW 10 Sep 2026. Ship criteria: flagged races must underperform unflagged
 # ones on OUR OWN picks in the forward window, in the same direction as
 # discovery. If the holdout inversion repeats, drop the idea entirely.
-FILTER_TOP2FLAG_ENABLED = os.getenv("FILTER_TOP2FLAG_ENABLED", "true").lower() == "true"
+#
+# ⛔ RETIRED 11 Sep 2026 at its scheduled review (default true -> false). Shadow
+# only throughout, so no selection or stake changes -- it just stops logging.
+# It failed its ship criterion in the direction that matters: on OUR OWN picks
+# since 13 Aug, F4-flagged primaries returned -47.2% (n=15) against -63.1%
+# UNFLAGGED (n=33) -- the holdout inversion repeated. The discovery-set effect
+# (flagged top scorer wins 6% v 15%) never reached the card because the
+# judgement layer already ducks those spots. Revert = FILTER_TOP2FLAG_ENABLED=true
+# (returns to shadow, since FILTER_TOP2FLAG_SHADOW still defaults true).
+FILTER_TOP2FLAG_ENABLED = os.getenv("FILTER_TOP2FLAG_ENABLED", "false").lower() == "true"
 FILTER_TOP2FLAG_SHADOW = os.getenv("FILTER_TOP2FLAG_SHADOW", "true").lower() == "true"
 
 # ---------------------------------------------------------------------------
@@ -708,7 +717,16 @@ NAP_REQUIRES_SL_CORROBORATION = os.getenv(
 #
 # Eventual action if it ships would be DEMOTE (reduce stake), never DROP -- the
 # cell contains genuine winners and it is 43% of the card.
-FILTER_POSBLOCK_ENABLED = os.getenv("FILTER_POSBLOCK_ENABLED", "true").lower() == "true"
+#
+# ⛔ RETIRED 11 Sep 2026 at its scheduled review (default true -> false). Shadow
+# only throughout, so no selection or stake changes -- it just stops logging.
+# Bar (a) was never reached (34 flagged real picks v 40 required) and bar (b)
+# INVERTED: F5-flagged primaries since 13 Aug returned -51.6% (n=28) against
+# -69.1% UNFLAGGED (n=20). The C+G+D>=30 split that measured 6/60 v 9/39 wins
+# in Jul-16 Aug read 1/24 v 1/14 from 17 Aug -- the effect the "spans zero" CI
+# warned about did not hold forward. Fifth raw-scorer segment finding to invert
+# on real picks. Revert = FILTER_POSBLOCK_ENABLED=true (returns to shadow).
+FILTER_POSBLOCK_ENABLED = os.getenv("FILTER_POSBLOCK_ENABLED", "false").lower() == "true"
 FILTER_POSBLOCK_SHADOW = os.getenv("FILTER_POSBLOCK_SHADOW", "true").lower() == "true"
 POSBLOCK_FLAG_AT = float(os.getenv("POSBLOCK_FLAG_AT", "30.0"))
 
