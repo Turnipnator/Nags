@@ -29,6 +29,8 @@ from config.settings import (
     EW_MIN_RUNNERS_FOR_PLACE, CLASS_FLOOR_BLOCKS_UNCLASSED,
     GOING_VOLATILITY_SPATIAL_PHRASES, SPORTINGLIFE_ENABLED,
     NAP_REQUIRES_SL_CORROBORATION, FILTER_POSBLOCK_ENABLED,
+    SCORE_FLOOR_ALL_SLOTS, STAKE_NAP, STAKE_NB_OF_DAY, STAKE_SELECTION,
+    STAKE_RACE_NB, STAKE_DEMOTED,
     FILTER_POSBLOCK_SHADOW, POSBLOCK_FLAG_AT,
     PASTPOST_FILTER_ENABLED, PASTPOST_BUFFER_MINUTES,
 )
@@ -803,6 +805,20 @@ def _resolve_race_meta(sel: dict, race_meta_lookup: dict) -> dict:
     return {}
 
 
+def _drop_primaries(selections: dict, drop_idxs: set) -> list:
+    """Remove top-level selections by index, remapping nap_index (-> -1 if the
+    NAP itself went). Returns the dropped dicts in index order. Shared by F2
+    LONGSHOT and CHECK 21 so there is exactly one way a pick leaves the card.
+    """
+    sels = selections.get("selections", []) or []
+    old_nap = selections.get("nap_index", -1)
+    kept = [(i, s) for i, s in enumerate(sels) if i not in drop_idxs]
+    selections["selections"] = [s for _, s in kept]
+    remap = {old_i: new_i for new_i, (old_i, _) in enumerate(kept)}
+    selections["nap_index"] = remap.get(old_nap, -1)
+    return [sels[i] for i in sorted(drop_idxs)]
+
+
 def _rebuild_double(selections: dict) -> None:
     """Rebuild the NAP+NB double from the FINALISED selections, in-place.
 
@@ -1248,6 +1264,73 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                     f"dropping entirely, not just demoting"
                 )
 
+    # CHECK 21: SCORE FLOOR ON EVERY SLOT (added 11 Sep 2026)
+    #
+    # CHECK 13 above floors the NB-of-day slot only. Every other slot could be
+    # filled with anything the judgement layer returned: on 8 Sep 2026 a 61
+    # (Spring Bloom) was saved as a FULL 1pt E/W selection because the market
+    # swap (CHECK 1) fired between a 63 and a 61 -- the swap has no floor
+    # either -- and on 11 Sep a 41 (Nightime Dancer) went in as a race NB.
+    # Operating Policy: below 70 is not a selection, below 55 is a pass.
+    #
+    # Primary 55-69 -> the SAME demote CHECK 13 uses (nb_price_capped ->
+    # STAKE_DEMOTED, E/W forced where a place market exists). Primary < 55 ->
+    # DROPPED through the same helper F2 uses (nap_index remapped, the double
+    # rebuilt by CHECK 15 below). Race NB < 55 -> dropped; race NBs at 55-64
+    # deliberately untouched (+15.8%, 4/13, 28 Jul-10 Sep). Missing score
+    # FAILS OPEN. A NAP is 75+ by construction so this never touches one.
+    # Cost-checked before shipping: 4 settled bets since 28 Jul, ~+1.5pt.
+    # Review 25 Sep 2026; revert SCORE_FLOOR_ALL_SLOTS=false.
+    if SCORE_FLOOR_ALL_SLOTS:
+        floor_drop = set()
+        for i, sel in enumerate(sels):
+            horse = sel.get("horse", "")
+            rnb = sel.get("next_best") or {}
+            nb_score = rnb.get("adjusted_score") if rnb.get("horse") else None
+            if nb_score is not None and 0 < nb_score < 55:
+                sel["next_best"] = {}
+                compliance_fixes.append(
+                    f"SCORE FLOOR: race NB {rnb.get('horse','')} "
+                    f"({rnb.get('odds_guide','')}) scored {nb_score} — below 55 "
+                    f"is a pass, race NB dropped"
+                )
+                logger.info(f"Compliance: score floor dropped race NB "
+                            f"{rnb.get('horse','')} ({nb_score})")
+            score = sel.get("adjusted_score")
+            if score is None or score <= 0 or score >= 70:
+                continue
+            if score < 55:
+                floor_drop.add(i)
+                continue
+            if sel.get("nb_price_capped"):
+                continue   # already demoted (CHECK 13 or an earlier gate) — one note
+            sel["nb_price_capped"] = True
+            meta = _resolve_race_meta(sel, race_meta_lookup) or {}
+            field = meta.get("num_runners", 0) or 0
+            ew_note = ""
+            if field == 0 or field >= 5:
+                if not sel.get("each_way"):
+                    sel["each_way"] = True
+                    ew_note = " (E/W forced on)"
+            role = ("NAP" if selections.get("nap_index") == i
+                    else ("NB-of-day" if i == 1 else "race SEL"))
+            compliance_fixes.append(
+                f"SCORE FLOOR: {horse} ({sel.get('odds_guide','')}, {role}) scored "
+                f"{score} — below the 70 selection line, demoted to "
+                f"{STAKE_DEMOTED:g}pt{ew_note}"
+            )
+            logger.info(f"Compliance: score floor demoted {horse} ({score} < 70)")
+        if floor_drop:
+            for dropped in _drop_primaries(selections, floor_drop):
+                compliance_fixes.append(
+                    f"SCORE FLOOR: {dropped.get('horse','')} "
+                    f"({dropped.get('odds_guide','')}) scored "
+                    f"{dropped.get('adjusted_score')} — below 55 is a pass, DROPPED"
+                )
+                logger.info(f"Compliance: score floor DROPPED "
+                            f"{dropped.get('horse','')} ({dropped.get('adjusted_score')})")
+            sels = selections["selections"]
+
     # CHECK 8 and CHECK 9 (AW Class 5/6 weight-rise blocker and
     # no-NAP-on-favourite, added 7 May 2026) were RETIRED on 6 Aug 2026:
     # both were gated on the race being Class 5/6, and the class floor
@@ -1656,17 +1739,12 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
             )
     # Enforce F2 drops only if F2 is live.
     if longshot_live and drop_idxs:
-        # Rebuild the list and remap nap_index — dropping by index would
-        # otherwise silently shift every selection after the removed one.
-        old_nap = selections.get("nap_index", -1)
-        kept = [(i, s) for i, s in enumerate(sels) if i not in drop_idxs]
-        selections["selections"] = [s for _, s in kept]
-        remap = {old_i: new_i for new_i, (old_i, _) in enumerate(kept)}
-        selections["nap_index"] = remap.get(old_nap, -1)
-        for i in sorted(drop_idxs):
+        # Removal + nap_index remap live in _drop_primaries (shared with
+        # CHECK 21's score floor since 11 Sep 2026) -- one way off the card.
+        for dropped in _drop_primaries(selections, drop_idxs):
             compliance_fixes.append(
-                f"F2 LONGSHOT: {sels[i].get('horse','')} "
-                f"({sels[i].get('odds_guide','')}) dropped — price too long"
+                f"F2 LONGSHOT: {dropped.get('horse','')} "
+                f"({dropped.get('odds_guide','')}) dropped — price too long"
             )
 
     # A live drop/demote can remove a double leg or clear the NAP set by CHECK 15
@@ -2641,15 +2719,17 @@ def format_selections_telegram(selections: dict) -> str:
         len(sels) > 1
         and sels[1].get("nb_price_capped", False)
     )
+    # Text reads the live ladder (config STAKE_*) -- it was hard-coded to the
+    # pre-17-Aug 2.0/1.5/0.75 ladder for four weeks after the flattening.
     if nap_idx >= 0:
         if nb_capped:
-            msg += "NAP: 2pts | NB-of-day demoted: 0.75pt (race SEL stake)\n"
+            msg += f"NAP: {STAKE_NAP:g}pt | NB-of-day demoted: {STAKE_DEMOTED:g}pt\n"
         else:
-            msg += "NAP: 2pts | NB: 1.5pts\n"
-        msg += "Selections 3-4: 0.75pt each\n"
+            msg += f"NAP: {STAKE_NAP:g}pt | NB-of-day: {STAKE_NB_OF_DAY:g}pt\n"
+        msg += f"Selections: {STAKE_SELECTION:g}pt each (demoted: {STAKE_DEMOTED:g}pt)\n"
     else:
-        msg += "All selections: 1pt flat (no NAP today)\n"
-    msg += "Race NBs: 0.75pt each\n"
+        msg += f"All selections: {STAKE_SELECTION:g}pt flat (no NAP today)\n"
+    msg += f"Race NBs: {STAKE_RACE_NB:g}pt each\n"
     if nap_idx >= 0 and not nb_capped:
         msg += "Double: 1pt\n"
     msg += "\n⏰ *TAKE EARLY PRICES - NEVER SP*"

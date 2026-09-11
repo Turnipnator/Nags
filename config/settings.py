@@ -727,6 +727,24 @@ NAP_REQUIRES_SL_CORROBORATION = os.getenv(
 # warned about did not hold forward. Fifth raw-scorer segment finding to invert
 # on real picks. Revert = FILTER_POSBLOCK_ENABLED=true (returns to shadow).
 FILTER_POSBLOCK_ENABLED = os.getenv("FILTER_POSBLOCK_ENABLED", "false").lower() == "true"
+
+# ── SCORE FLOOR ON EVERY SLOT (added 11 Sep 2026, analyst.py CHECK 21) ───────
+# CHECK 13 floored the NB-of-day slot ONLY. 8 Sep 2026: a 61 (Spring Bloom) was
+# saved as a full 1pt E/W selection because the market swap fired between a 63
+# and a 61 and no other slot had a floor. 11 Sep: a 41 (Nightime Dancer) was
+# saved as a race NB. Operating Policy: below 70 is not a selection, below 55
+# is a pass. Now: primary < 70 -> demoted to STAKE_DEMOTED via nb_price_capped
+# (E/W forced where a place market exists); primary < 55 -> DROPPED through the
+# same path F2 uses; race NB < 55 -> dropped. Race NBs at 55-64 are deliberately
+# untouched (+15.8%, 4 winners from 13, 28 Jul-10 Sep). Missing score fails OPEN.
+# Cost check before shipping: would have touched 4 settled bets since 28 Jul
+# for ~+1.5pt -- hygiene, not edge; the point is that a swap between two sub-70
+# horses can no longer defeat the ladder. Strictly subtractive: on the ledger it
+# only lowers or removes a stake; on the exchange it can only remove a place bet
+# (a dropped row no longer exists), never add one.
+# ⏰ REVIEW 25 Sep 2026 (Paul, 11 Sep: "we can revert back after a couple of
+# weeks if it doesn't improve"). Revert: SCORE_FLOOR_ALL_SLOTS=false.
+SCORE_FLOOR_ALL_SLOTS = os.getenv("SCORE_FLOOR_ALL_SLOTS", "true").lower() == "true"
 FILTER_POSBLOCK_SHADOW = os.getenv("FILTER_POSBLOCK_SHADOW", "true").lower() == "true"
 POSBLOCK_FLAG_AT = float(os.getenv("POSBLOCK_FLAG_AT", "30.0"))
 
