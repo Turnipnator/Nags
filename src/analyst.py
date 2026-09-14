@@ -1626,14 +1626,25 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
     # even an unpaired "[" swallows characters — that is why the 9 Jul card
     # printed "now — + —]" with the opening bracket eaten.
     if _had_old and not _has_new:
-        # Not a rebuild: with no NAP there is no double at all (the renderer
-        # gates on nap_index >= 0). Saying "REBUILT ... now — + —" implied a
-        # double still existed.
-        compliance_fixes.append(
-            f"DOUBLE DROPPED: no NAP today, so no double "
-            f"(was {_old_double.get('leg1')} x {_old_double.get('leg2')})"
-        )
-        logger.info("Compliance: double dropped (no NAP)")
+        # Not a rebuild: saying "REBUILT ... now — + —" implied a double still
+        # existed. _rebuild_double clears it for TWO reasons and the note must
+        # name the right one (14 Sep 2026: a NAP-only card, its second pick
+        # stripped by CHECK 0b, logged "no NAP" beside a live NAP):
+        #   (a) no NAP — the renderer gates on nap_index >= 0
+        #   (b) a NAP, but no other selection left that is not odds-on
+        _was = f"(was {_old_double.get('leg1')} x {_old_double.get('leg2')})"
+        _final_sels = selections.get("selections", []) or []
+        _final_nap = selections.get("nap_index", -1)
+        if 0 <= _final_nap < len(_final_sels):
+            compliance_fixes.append(
+                f"DOUBLE DROPPED: NAP {_final_sels[_final_nap].get('horse')} has "
+                f"no second leg (no other selection left that is not odds-on), "
+                f"so no double {_was}"
+            )
+            logger.info("Compliance: double dropped (NAP has no second leg)")
+        else:
+            compliance_fixes.append(f"DOUBLE DROPPED: no NAP today, so no double {_was}")
+            logger.info("Compliance: double dropped (no NAP)")
     elif _has_new and (
         _new_double.get("leg1") != _old_double.get("leg1")
         or _new_double.get("leg2") != _old_double.get("leg2")
