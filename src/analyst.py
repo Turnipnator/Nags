@@ -924,6 +924,27 @@ def _rebuild_double(selections: dict) -> None:
     }
 
 
+def _apply_compliance(selections: dict, scored_lookup: dict,
+                      race_meta_lookup: dict = None) -> dict:
+    """Run the compliance gate and record whether IT removed the NAP.
+
+    Added 17 Sep 2026. The no-NAP card said "the NAP was blocked by the
+    compliance gate" whenever the top score reached 75 -- including when the
+    judgement model had simply chosen not to NAP (17 Sep: Financer 75, lowest-
+    rated on RPR, model declined). The gate clears nap_index in many places,
+    so this compares before and after rather than tracking each one.
+    Sets selections["nap_blocked_by_gate"]; read only by the Telegram renderer."""
+    nap_before = selections.get("nap_index", -1) if isinstance(selections, dict) else -1
+    out = _enforce_compliance(selections, scored_lookup, race_meta_lookup)
+    if isinstance(out, dict):
+        nap_after = out.get("nap_index", -1)
+        out["nap_blocked_by_gate"] = (
+            isinstance(nap_before, int) and nap_before >= 0
+            and (nap_after is None or nap_after < 0)
+        )
+    return out
+
+
 def _enforce_compliance(selections: dict, scored_lookup: dict,
                         race_meta_lookup: dict = None) -> dict:
     """
@@ -2383,7 +2404,7 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
             logger.info(f"Claude picked {len(selections['selections'])} selections")
 
             # Step 3.5: COMPLIANCE GATE — enforce rules programmatically
-            selections = _enforce_compliance(selections, scored_lookup, race_meta_lookup)
+            selections = _apply_compliance(selections, scored_lookup, race_meta_lookup)
             _note_sl_status(selections, sl_status)
 
             return selections
@@ -2396,7 +2417,7 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
     fallback = _programmatic_cherry_pick(
         top_races_data, n_races=n_races, fallback_reason=fallback_reason
     )
-    fallback = _enforce_compliance(fallback, scored_lookup, race_meta_lookup)
+    fallback = _apply_compliance(fallback, scored_lookup, race_meta_lookup)
     _note_sl_status(fallback, sl_status)
     return fallback
 
@@ -2772,9 +2793,13 @@ def format_selections_telegram(selections: dict) -> str:
         flat_note = f"Flat {STAKE_SELECTION:g}pt stakes across all selections"
         if any(s.get("nb_price_capped") for s in sels):
             flat_note += f" ({STAKE_DEMOTED:g}pt on demoted picks)"
-        if top_score >= NAP_THRESHOLD:
+        if top_score >= NAP_THRESHOLD and selections.get("nap_blocked_by_gate"):
             msg += (f"Top pick scored {top_score:.0f}/100 but the NAP was "
                     f"blocked by the compliance gate (see below). {flat_note}.\n")
+        elif top_score >= NAP_THRESHOLD:
+            # The model declined the NAP itself; the gate did not touch it.
+            msg += (f"Top pick scored {top_score:.0f}/100 but no NAP was called "
+                    f"— see the notes below. {flat_note}.\n")
         else:
             msg += f"Nothing scored 75+. {flat_note}.\n"
 
