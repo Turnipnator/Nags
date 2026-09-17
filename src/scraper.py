@@ -23,6 +23,7 @@ import httpx
 from src.clock import london_today
 from config.settings import (
     RACING_API_USERNAME, RACING_API_PASSWORD, VALID_COURSES, NR_PRICE_ONLY,
+    NR_NUMBER_FLAG_ENABLED,
     SPORTINGLIFE_ENABLED, SPORTINGLIFE_TIMEOUT, SPORTINGLIFE_DELAY,
     SPORTINGLIFE_BASE, USER_AGENT, API_RATE_LIMIT_RPS, API_429_MAX_RETRIES,
 )
@@ -876,9 +877,10 @@ class Scraper:
         parsed: list = []
         for runner_data in data.get("runners", []):
             has_price = self._has_bookmaker_price(runner_data)
+            nr_flag = NR_NUMBER_FLAG_ENABLED and self._is_nr_flagged(runner_data)
             runner = self._parse_runner(runner_data, has_price)
             if runner:
-                parsed.append((runner, has_price))
+                parsed.append((runner, has_price, nr_flag))
 
         # NON-RUNNER FILTER (9 Jul 2026).
         # The API keeps withdrawn horses in `runners` — and they still carry a
@@ -892,18 +894,32 @@ class Scraper:
         # Treat a priceless runner as withdrawn ONLY when at least one rival IS
         # priced — otherwise an early card whose market has not opened yet would
         # lose its entire field.
-        if any(priced for _, priced in parsed):
-            race.runners = [r for r, priced in parsed if priced]
-            withdrawn = [r.name for r, priced in parsed if not priced]
+        #
+        # NR SADDLE-CLOTH FLAG (17 Sep 2026). From 17 Aug 2026 the API keeps
+        # STALE bookmaker prices on withdrawn horses, so the price test above
+        # stopped catching them (16 of 39 races on the 17 Sep run). The API's
+        # own withdrawal marker is `number == "NR"` (5,349 flagged Apr-Sep, 0 in
+        # any result), so a flagged runner is dropped first, whatever its
+        # prices. The "is a rival priced" test then runs over the REMAINING
+        # runners, so a stale price on a withdrawn horse cannot make an unopened
+        # market look open. Flag off => nr_flag is always False => the exact
+        # pre-17-Sep behaviour.
+        flagged = [r.name for r, _, nr in parsed if nr]
+        candidates = [(r, priced) for r, priced, nr in parsed if not nr]
+        if any(priced for _, priced in candidates):
+            race.runners = [r for r, priced in candidates if priced]
+            unpriced = [r.name for r, priced in candidates if not priced]
         else:
-            race.runners = [r for r, _ in parsed]
-            withdrawn = []
+            race.runners = [r for r, _ in candidates]
+            unpriced = []
+        withdrawn = flagged + unpriced
 
         race.num_runners = len(race.runners)
 
         if withdrawn:
             logger.info(
-                f"{race.name}: dropped {len(withdrawn)} non-runner(s): "
+                f"{race.name}: dropped {len(withdrawn)} non-runner(s) "
+                f"(NR flag {len(flagged)}, unpriced {len(unpriced)}): "
                 f"{', '.join(withdrawn)}"
             )
 
@@ -921,6 +937,14 @@ class Scraper:
             )
 
         return race
+
+    @staticmethod
+    def _is_nr_flagged(runner_data: dict) -> bool:
+        """True if the API has replaced the saddle-cloth number with "NR".
+
+        Only the exact token (case/whitespace-insensitive). Reserves carry an
+        R-number such as "R17" and DO run -- they must never match."""
+        return str(runner_data.get("number") or "").strip().upper() == "NR"
 
     @staticmethod
     def _has_bookmaker_price(runner_data: dict) -> bool:

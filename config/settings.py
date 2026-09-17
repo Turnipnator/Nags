@@ -354,6 +354,23 @@ GOING_DETAILED_REAL_FIELD = os.getenv(
     "GOING_DETAILED_REAL_FIELD", "true").lower() == "true"
 NR_PRICE_ONLY = os.getenv("NR_PRICE_ONLY", "true").lower() == "true"
 
+# NR SADDLE-CLOTH FLAG (added 17 Sep 2026, scraper._parse_race).
+# The 9 Jul 2026 filter treats a runner as withdrawn only when NO bookmaker
+# quotes it. From 17 Aug 2026 the Racing API keeps stale bookmaker prices on
+# withdrawn horses (0-4 a day before; ~94% of them after), so that filter
+# stopped catching them: on the 17 Sep 10:05 run 16 of 39 races were scored
+# with withdrawn horses still in the field (24 horses; Bet365 itself still
+# quoted 12), and 20 of the 65 races the bot bet in since 17 Aug carried at
+# least one. They were scored, counted toward field size (NB-of-day 8+, E/W
+# place market, odds-on-favourite pass), used in every field-relative
+# comparison, and could be selected.
+# The API marks a withdrawn horse by replacing its saddle-cloth `number` with
+# "NR": 5,349 NR-flagged runners Apr-Sep 2026, 0 appear in a result. Reserves
+# carry an R-number ("R17") and DO run (68/68) -- only the exact token "NR" is
+# treated as withdrawn. The price rule stays as a backstop.
+# Revert: NR_NUMBER_FLAG_ENABLED=false (restores price-only detection).
+NR_NUMBER_FLAG_ENABLED = os.getenv("NR_NUMBER_FLAG_ENABLED", "true").lower() == "true"
+
 # Racing API pacing (added 1 Sep 2026). The horse-results endpoint is limited
 # to 5 req/s on the Pro plan and enrichment ran 4 unpaced workers straight
 # into it: 913 HTTP 429s between 10 Aug and 1 Sep, in bursts of 150-244 per
