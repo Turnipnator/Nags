@@ -30,7 +30,7 @@ from config.settings import (
 from src.database import init_db, save_meeting, save_selections, is_bot_paused, _set_state, _get_state
 from src.scraper import Scraper
 from src.analyst import analyse_all_meetings, format_selections_telegram, _note_enrichment_status
-from src.clock import london_today
+from src.clock import london_today, london_stamp
 from src.telegram_bot import create_app, send_message
 
 logger = logging.getLogger(__name__)
@@ -218,6 +218,14 @@ def _save_cherry_picks(today: date, selections: dict):
     sels = selections.get("selections", [])
     nap_idx = selections.get("nap_index", 0)
 
+    # created_at on the LONDON racing clock (17 Sep 2026). The 14 Aug clock fix
+    # stamped London time only in the legacy database._save_selection path;
+    # this live path took SQLite's CURRENT_TIMESTAMP (UTC). In 00:00-01:00
+    # London (BST) that stamped the PREVIOUS day, so the settler, the daily
+    # card replacement and (from 01:00) the Betfair bot all missed the card.
+    # One stamp per run, so every row of a card shares it.
+    created_at = london_stamp()
+
     for sel in sels:
         if nap_idx >= 0 and sel["rank"] == nap_idx + 1:
             sel_type = "nap"
@@ -260,8 +268,9 @@ def _save_cherry_picks(today: date, selections: dict):
         _conn.execute(
             """INSERT INTO selections
                (meeting_id, race_time, race_name, horse, selection_type,
-                odds_guide, each_way, stake_pts, reasoning, confidence, danger, score)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                odds_guide, each_way, stake_pts, reasoning, confidence, danger, score,
+                created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 None,  # Not tied to a single meeting
                 sel.get("race_time", ""),
@@ -275,6 +284,7 @@ def _save_cherry_picks(today: date, selections: dict):
                 sel.get("confidence", ""),
                 sel.get("danger", ""),
                 sel.get("adjusted_score", 0),
+                created_at,
             ),
         )
 
@@ -285,8 +295,9 @@ def _save_cherry_picks(today: date, selections: dict):
             _conn.execute(
                 """INSERT INTO selections
                    (meeting_id, race_time, race_name, horse, selection_type,
-                    odds_guide, each_way, stake_pts, reasoning, confidence, danger, score)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    odds_guide, each_way, stake_pts, reasoning, confidence, danger, score,
+                    created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     None,
                     sel.get("race_time", ""),
@@ -306,6 +317,7 @@ def _save_cherry_picks(today: date, selections: dict):
                     # future "widen the swap gap?" question is measurable. Purely
                     # additive: affects no stake, bet or selection. (28 Jul 2026)
                     rnb.get("adjusted_score", 0),
+                    created_at,
                 ),
             )
 

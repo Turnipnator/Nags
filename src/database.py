@@ -162,10 +162,11 @@ def log_manual_selection(race_time: str, race_name: str, horse: str,
            (meeting_id, race_time, race_name, horse, selection_type,
             odds_guide, each_way, stake_pts, reasoning, confidence, danger,
             score, source, created_at)
-           VALUES (NULL,?,?,?,?,?,?,?,?,'','',?, 'manual',
-                   COALESCE(?, CURRENT_TIMESTAMP))""",
+           VALUES (NULL,?,?,?,?,?,?,?,?,'','',?, 'manual', ?)""",
+        # Fallback is the LONDON racing clock, not SQLite's UTC CURRENT_TIMESTAMP
+        # (17 Sep 2026) -- the same day-boundary bug as the live bot path.
         (race_time, race_name, horse, sel_type, odds_guide, each_way,
-         stake_pts, reasoning, score, created_date),
+         stake_pts, reasoning, score, created_date or london_stamp()),
     )
     _conn.commit()
     return cur.lastrowid
