@@ -34,8 +34,9 @@ from config.settings import (
     FILTER_POSBLOCK_SHADOW, POSBLOCK_FLAG_AT,
     PASTPOST_FILTER_ENABLED, PASTPOST_BUFFER_MINUTES,
     ODDSON_FAV_PASS_ENABLED, ODDSON_FAV_MAX_FIELD, F2_CONSENSUS_SHADOW_ENABLED,
+    SL_FLAG_LOG_ENABLED, SL_FLAG_LOG_PATH,
 )
-from src.clock import london_today, london_now
+from src.clock import london_today, london_now, london_stamp
 from src.scraper import Runner, Race, Meeting, Scraper
 from src.scorer import RunnerScore, Scorer
 
@@ -2340,6 +2341,10 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
             sl_status = f"Sporting Life enrichment failed ({type(exc).__name__})"
             logger.warning("Sporting Life enrichment failed: %s", exc)
 
+    # SL FLAG LOG (17 Sep 2026) — research record only, mutates nothing.
+    if SPORTINGLIFE_ENABLED and top_races_data:
+        _log_sl_flags(top_races_data, sl_status)
+
     # Build scored lookup for compliance gate
     scored_lookup = {}
     race_meta_lookup = {}
@@ -2420,6 +2425,76 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
     fallback = _apply_compliance(fallback, scored_lookup, race_meta_lookup)
     _note_sl_status(fallback, sl_status)
     return fallback
+
+
+_SL_AHEAD_FLAG = "AHEAD_OF_THE_HANDICAPPER"
+
+
+def _log_sl_flags(top_races_data: list, sl_status: str = "", path: str = None,
+                  stamp: str = None) -> int:
+    """Append one JSONL line per gate-passing race -- LOG ONLY (17 Sep 2026).
+
+    Records EVERY runner (deterministic score, rank in race, Bet365 and median
+    price, whether a Sporting Life read arrived, its SL insight flags), because
+    the unflagged runners are the comparison group. Started after 17 Sep: both
+    AHEAD_OF_THE_HANDICAPPER favourites were 3yos the scorer ranked near the
+    bottom, and Wild Thoughts (53.1, 10th of 11) won Ayr 15:00. SL pages are
+    not cached, so this log is the only history the flag will ever have.
+
+    Returns the number of AHEAD_OF_THE_HANDICAPPER flags logged. Never raises:
+    any failure logs a WARNING and the card proceeds untouched."""
+    if not SL_FLAG_LOG_ENABLED or not top_races_data:
+        return 0
+    try:
+        stamp = stamp or london_stamp()
+        path = path or SL_FLAG_LOG_PATH
+        lines, flagged_total = [], 0
+        for scored_runners, race, meeting in top_races_data:
+            ordered = sorted(scored_runners, key=lambda x: -(x.total or 0))
+            runners, ahead = [], []
+            for rank, sr in enumerate(ordered, start=1):
+                r = sr.runner
+                flags = list(getattr(r, "sl_insights", None) or [])
+                is_ahead = _SL_AHEAD_FLAG in flags
+                if is_ahead:
+                    ahead.append(r.name)
+                    logger.info(
+                        f"SL-FLAG {_SL_AHEAD_FLAG}: {meeting.course} {race.time} "
+                        f"{r.name} {r.odds} — score {(sr.total or 0):.1f}, "
+                        f"rank {rank}/{len(ordered)}")
+                runners.append({
+                    "horse": r.name,
+                    "odds": r.odds,
+                    "odds_median": getattr(r, "odds_median", None),
+                    "score": round(sr.total or 0, 1),
+                    "rank": rank,
+                    "sl_read": bool(getattr(r, "sl_comment", "")),
+                    "sl_flags": flags,
+                    "ahead_of_handicapper": is_ahead,
+                })
+            flagged_total += len(ahead)
+            lines.append(json.dumps({
+                "logged_at": stamp,
+                "date": meeting.date.isoformat() if meeting.date else "",
+                "course": meeting.course,
+                "race_time": race.time,
+                "race_name": race.name,
+                "race_id": race.race_id,
+                "race_class": race.race_class or "",
+                "pattern": race.pattern or "",
+                "field": len(ordered),
+                "sl_status": sl_status or "",
+                "ahead_of_handicapper": ahead,
+                "runners": runners,
+            }))
+        with open(path, "a") as f:
+            for line in lines:
+                f.write(line + "\n")
+        return flagged_total
+    except Exception as exc:  # never let research logging touch a card
+        logger.warning("SL flag log not written (%s: %s) — selections unaffected",
+                       type(exc).__name__, exc)
+        return 0
 
 
 def _note_sl_status(selections: dict, sl_status: str) -> None:

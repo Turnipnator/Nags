@@ -823,3 +823,17 @@ ODDSON_FAV_MAX_FIELD = int(os.getenv("ODDSON_FAV_MAX_FIELD", "6"))
 # from live F2 on Bet365 -- in both directions -- so the reference price can be
 # judged on forward data. Mutates nothing. Log: "FILTER-SHADOW F2 CONSENSUS:".
 F2_CONSENSUS_SHADOW_ENABLED = os.getenv("F2_CONSENSUS_SHADOW_ENABLED", "true").lower() == "true"
+
+# ── SPORTING LIFE FLAG LOG (added 17 Sep 2026, analyst._log_sl_flags) — LOG ONLY ──
+# One JSONL line per gate-passing race per run: every runner's deterministic
+# score, rank in the race, Bet365 and median price, whether a Sporting Life
+# read arrived, and its SL insight flags. Mutates nothing. Started because on
+# 17 Sep both AHEAD_OF_THE_HANDICAPPER favourites were 3yos the scorer ranked
+# near the bottom (Wild Thoughts 53.1, 10th of 11, WON Ayr 15:00 at 11/4F;
+# Level Look 44.5, last of 4). SL pages are not cached, so there is no history
+# -- this is the only way the flag can ever be measured. Results are joined
+# later on date + course + race time + horse. Unflagged runners are logged too:
+# they are the comparison group. Lives on the ./data host volume (survives
+# rebuilds) but is NOT in the nightly DB backup.
+SL_FLAG_LOG_ENABLED = os.getenv("SL_FLAG_LOG_ENABLED", "true").lower() == "true"
+SL_FLAG_LOG_PATH = os.getenv("SL_FLAG_LOG_PATH", "/app/data/sl_flag_log.jsonl")
