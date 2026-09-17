@@ -11,6 +11,7 @@ UK and Irish racing only (filtered client-side).
 
 import logging
 import re
+import statistics
 import threading
 import time as time_mod
 from dataclasses import dataclass, field
@@ -129,6 +130,11 @@ class Runner:
     speed_figure: Optional[int] = None  # Topspeed
     comment: Optional[str] = None  # Spotlight
     odds: Optional[str] = None
+    # Median price across every bookmaker quoting a number, as a FRACTIONAL
+    # multiplier (11/1 -> 11.0, same units as analyst._parse_odds_to_decimal).
+    # Added 17 Sep 2026 for the F2 CONSENSUS shadow log ONLY -- `odds` (Bet365)
+    # stays the reference price everywhere. None when no book quotes a number.
+    odds_median: Optional[float] = None
     sex: Optional[str] = None
     course_winner: bool = False
     distance_winner: bool = False
@@ -1040,6 +1046,20 @@ class Scraper:
             ref = bet365 or odds_list[0]
             odds_value = ref.get("fractional") or None
 
+        # Consensus price for the F2 CONSENSUS shadow log (17 Sep 2026). Books
+        # quote "-" for no price and occasionally "SP"; anything that is not a
+        # decimal number >= 1.0 is ignored.
+        book_decimals = []
+        for o in odds_list:
+            try:
+                dec = float(o.get("decimal"))
+            except (TypeError, ValueError):
+                continue
+            if dec >= 1.0:
+                book_decimals.append(dec)
+        odds_median = (round(statistics.median(book_decimals) - 1.0, 3)
+                       if book_decimals else None)
+
         runner = Runner(
             name=name,
             horse_id=data.get("horse_id"),
@@ -1074,6 +1094,7 @@ class Scraper:
             medical=medical,
             stable_tour=stable_tour,
             odds=odds_value,
+            odds_median=odds_median,
         )
 
         return runner

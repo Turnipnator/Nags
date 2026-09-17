@@ -33,6 +33,7 @@ from config.settings import (
     STAKE_RACE_NB, STAKE_DEMOTED,
     FILTER_POSBLOCK_SHADOW, POSBLOCK_FLAG_AT,
     PASTPOST_FILTER_ENABLED, PASTPOST_BUFFER_MINUTES,
+    ODDSON_FAV_PASS_ENABLED, ODDSON_FAV_MAX_FIELD, F2_CONSENSUS_SHADOW_ENABLED,
 )
 from src.clock import london_today, london_now
 from src.scraper import Runner, Race, Meeting, Scraper
@@ -134,6 +135,18 @@ Before returning your JSON, verify EACH selection against these 7 checks. Do NOT
    Compliance gate enforces both as backstop. Rules do NOT apply at Group/Listed/big-handicap level.
 6. C5/C6 SCORE-VS-MARKET GATE (added 8 May 2026 — Option B): For each selection in ANY Class 5 / Class 6 race (AW or turf), if adjusted_score ≥ 80 AND best decimal odds ≥ 9.0 (8/1 or longer), demote to race SEL stake (no NAP, no NB-of-day). The score-vs-market divergence is too wide to trust — the framework over-counts recyclable-pool form in C5/C6. Compliance gate enforces as backstop.
 7. GOING STABILITY (added 9 May 2026 — Option Y): For each selection's course, check going against the snapshot from earlier today (compliance gate handles the snapshot lookup). If going has shifted by ≥ 2 ordinal steps within 12h (Good→Soft = 2; Good→Heavy = 3), set each_way to true and remove NAP — picks on this course are flat-stakes-only. Also flag races where `going_detailed` forecasts the going CHANGING during the day ("watered", "watering", "showers", "rain forecast", "could change", "becoming softer", "drying out"). Do NOT flag on present-tense spatial description ("in places", "in the back straight") — a stable surface described precisely is not volatile. Validated by Hexham 9 May 2026 going-shift bleed.
+
+## WRITE-UP RULES (added 17 Sep 2026)
+
+The reasoning is what gets read before real money is staked. On a no-NAP card the Telegram card shows ONLY reasoning[0] (plus the danger line), so reasoning[0] must be a balanced one-sentence verdict — never a single flattering figure.
+
+1. reasoning[0] states the main case FOR the horse AND the main case AGAINST it, in one sentence.
+2. If the market favourite is not your selection, name it WITH its price (in reasoning or danger) and say specifically why you are opposing it. An odds-on favourite must never go unmentioned.
+3. Describe the horse's recent form in plain words ("winless in six on the Flat, beaten 57L last time"), especially when it cuts against the pick. Never cite a rating overlay (RPR/TS above OR) without saying whether the recent runs support it — an old peak figure on a horse the handicapper keeps dropping is not the same as an improver.
+4. When a ★ Sporting Life line exists, use it — including where it disagrees with the pick. The "Spotlight (API, MACHINE-GENERATED)" line restates the figures: never present it, or phrasing lifted from it ("clear edge on our figures", "ranks Nth on our figures"), as the case for a horse.
+5. Plain English only. No raw field dumps such as "(C&D: True, Course: True, Dist: True)". Any score you quote must equal the adjusted_score you output.
+
+Why: 17 Sep 2026, Southwell 17:25 (4 runners). Charging Thunder 10/1 went out as "Clear figures edge in a 4-runner heat: RPR 96 (+12 over OR 84) leads the field by 8pts" — no mention of his Flat form 502700 (14th of 15, beaten 57L, last time), of the 4/9 market favourite Level Look, or of the Sporting Life read. The same card called Financer "top scorer of the day at 75" while outputting 74.
 
 ## OUTPUT FORMAT
 
@@ -287,6 +300,45 @@ def _blocked_favourite_dominates(race_scored: list) -> tuple:
             f"(RPR {best_betable_rpr}) — PASS the race",
         )
     return (False, "")
+
+
+def _oddson_fav_small_field(race_scored: list) -> tuple:
+    """Return (should_pass, detail) when the market favourite is STRICTLY
+    odds-on (shorter than evens) in a field of ODDSON_FAV_MAX_FIELD or fewer.
+
+    Added 17 Sep 2026 after Southwell 17:25: Level Look 4/9 in a 4-runner C4
+    handicap. The sub-evens block kept him off the card, so the bot backed
+    the leftovers -- Charging Thunder 10/1 and New York Minute 10/1. Neither
+    existing pass rule could see it: the betable-70 gate passed on 73, and
+    _blocked_favourite_dominates needs the favourite 8 RPR clear (Level Look
+    had the LOWEST RPR in the race). This rule keys on the MARKET instead.
+    Evidence: 51 bot bets / 30 races, -40.8% ROI, negative in both halves.
+
+    Evens is NOT odds-on and does not fire (Paul, 17 Sep: "evens is ok, just
+    odds on") -- deliberately stricter than _is_sub_evens, which blocks <= 1/1.
+    Field = every runner in race_scored (the scraper has already removed
+    runners priced at no bookmaker), so a runner unpriced at Bet365 still
+    counts. No parseable price => does not fire (fails open)."""
+    if not ODDSON_FAV_PASS_ENABLED or not race_scored:
+        return (False, "")
+    field = len(race_scored)
+    if field > ODDSON_FAV_MAX_FIELD:
+        return (False, "")
+    priced = [
+        (sr, _parse_odds_to_decimal(getattr(sr.runner, "odds", "") or ""))
+        for sr in race_scored
+    ]
+    priced = [(sr, d) for sr, d in priced if d > 0]
+    if not priced:
+        return (False, "")
+    fav_sr, fav_mult = min(priced, key=lambda x: x[1])
+    if fav_mult >= 1.0:  # Evens or longer — rule N/A
+        return (False, "")
+    return (
+        True,
+        f"{fav_sr.runner.name} {fav_sr.runner.odds} odds-on favourite in a "
+        f"{field}-runner field (≤{ODDSON_FAV_MAX_FIELD}) — PASS the race",
+    )
 
 
 # Price caps (added 5 May 2026 after Fairlawn Flyer 22/1 NAP at Ffos Las
@@ -1211,8 +1263,8 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                     ew_note = " (E/W forced on — place pool active in 5+R field)"
             compliance_fixes.append(
                 f"NB-OF-DAY FIELD FLOOR: {old_horse} in {nb_field}-runner field — "
-                f"demoted to race SEL stake (0.75pt). 1.5pt E/W needs 8+ runners "
-                f"for 3-place E/W terms at 1/5 odds{ew_note}"
+                f"demoted to race SEL stake ({STAKE_DEMOTED:g}pt). The NB-of-day "
+                f"stake needs 8+ runners for 3-place E/W terms at 1/5 odds{ew_note}"
             )
             logger.info(
                 f"Compliance: NB-of-day field-size floor demoted {old_horse} "
@@ -1700,6 +1752,25 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                 f"{HIGHSCORE_DEMOTE_AT:.0f} => DEMOTE to race SEL stake"
             ))
 
+        # F2 CONSENSUS SHADOW (17 Sep 2026) — LOG ONLY, always is_live=False.
+        # Live F2 reads the Bet365 price; this records every primary where F2
+        # on the MEDIAN bookmaker price would decide differently, in both
+        # directions. Charging Thunder 17 Sep: Bet365 10/1 (kept), 16 of 29
+        # books 11/1+. No median or unparseable Bet365 price => nothing logged.
+        if F2_CONSENSUS_SHADOW_ENABLED and FILTER_LONGSHOT_ENABLED and frac > 0:
+            c_sr = scored_lookup.get(horse.lower()) if horse else None
+            median = getattr(c_sr.runner, "odds_median", None) if c_sr else None
+            if median is not None:
+                bet365_drops = frac >= LONGSHOT_MAX_ODDS
+                median_drops = median >= LONGSHOT_MAX_ODDS
+                if bet365_drops != median_drops:
+                    filter_notes.append((False,
+                        f"F2 CONSENSUS: {horse} ({role}) Bet365 {odds} vs median "
+                        f"book {median:g}/1 — F2 on the median would "
+                        f"{'DROP' if median_drops else 'KEEP'} (live F2 on Bet365: "
+                        f"{'DROP' if bet365_drops else 'KEEP'})"
+                    ))
+
         # F3 SHORT-PREMIUM-NAP — applies ONLY to the NAP slot, and only in
         # premium races. Independent of F1/F2 above (not an elif) because it
         # keys on a different axis: F2 is price-high, F1 is score-high, F3 is
@@ -2036,17 +2107,29 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
         before_domfav = [r for r in before_class if _meets_class_floor(r[3])]
         # Pass-the-race rule (16 Jun 2026): drop races where the sub-evens-
         # blocked favourite dominates the betable field on RPR (≥8 clear).
-        qualifying = [r for r in before_domfav
-                      if not _blocked_favourite_dominates(r[2])[0]]
+        before_oddsonfav = [r for r in before_domfav
+                            if not _blocked_favourite_dominates(r[2])[0]]
+        # Odds-on favourite pass (17 Sep 2026): drop small fields whose
+        # favourite is strictly odds-on. See _oddson_fav_small_field.
+        qualifying = [r for r in before_oddsonfav
+                      if not _oddson_fav_small_field(r[2])[0]]
         dropped_score = len(ranked) - len(before_class)
         dropped_class = len(before_class) - len(before_domfav)
-        dropped_domfav = len(before_domfav) - len(qualifying)
+        dropped_domfav = len(before_domfav) - len(before_oddsonfav)
+        dropped_oddsonfav = len(before_oddsonfav) - len(qualifying)
         if dropped_domfav:
             for top_score, gap, race_scored, race, meeting in before_domfav:
                 fired, detail = _blocked_favourite_dominates(race_scored)
                 if fired:
                     logger.info(
                         f"  → DROPPED-domfav: {meeting.course} {race.time} | {detail}"
+                    )
+        if dropped_oddsonfav:
+            for top_score, gap, race_scored, race, meeting in before_oddsonfav:
+                fired, detail = _oddson_fav_small_field(race_scored)
+                if fired:
+                    logger.info(
+                        f"  → DROPPED-oddsonfav: {meeting.course} {race.time} | {detail}"
                     )
         if dropped_score:
             # Detailed log for each dropped-by-betable race — needed for
@@ -2125,6 +2208,8 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
         unbetable_details = []
         domfav_count = 0
         domfav_details = []
+        oddsonfav_keys = set()   # deduped: several top-60 runners share a race
+        oddsonfav_details = []
         for sr, race, meeting in top_runners:
             key = f"{meeting.course}_{race.time}"
             if key in top_race_keys:
@@ -2155,6 +2240,14 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
                 domfav_count += 1
                 domfav_details.append(f"{meeting.course} {race.time} | {domfav_detail}")
                 continue
+            # Odds-on favourite pass (17 Sep 2026). See _oddson_fav_small_field.
+            oddsonfav_fired, oddsonfav_detail = _oddson_fav_small_field(race_scored)
+            if oddsonfav_fired:
+                if key not in oddsonfav_keys:
+                    oddsonfav_keys.add(key)
+                    oddsonfav_details.append(
+                        f"{meeting.course} {race.time} | {oddsonfav_detail}")
+                continue
             top_race_keys.add(key)
             top_races_data.append(races_by_key[key])
 
@@ -2176,6 +2269,13 @@ def analyse_all_meetings(meetings: list[Meeting], tips_text: str = "",
             )
             for line in domfav_details:
                 logger.info(f"  → DROPPED-domfav: {line}")
+        if oddsonfav_details:
+            logger.info(
+                f"Odds-on-favourite pass skipped {len(oddsonfav_details)} race(s) — "
+                f"favourite shorter than evens in a field of ≤{ODDSON_FAV_MAX_FIELD}"
+            )
+            for line in oddsonfav_details:
+                logger.info(f"  → DROPPED-oddsonfav: {line}")
         logger.info(
             f"Scored {len(all_scored)} runners across {len(meetings)} meetings. "
             f"Top {len(top_races_data)} races ({len(top_runners)} runners) sent for judgement."
@@ -2667,12 +2767,16 @@ def format_selections_telegram(selections: dict) -> str:
         # top scorer. Report whichever actually applies (don't claim "nothing
         # scored 75+" when the top pick is e.g. 82 but the going gate blocked it).
         top_score = max((s.get("adjusted_score", 0) or 0) for s in sels)
+        # Stake text reads the live ladder (17 Sep 2026) -- it said "Flat 1pt"
+        # while the gate had demoted a pick to 0.75pt on the same card.
+        flat_note = f"Flat {STAKE_SELECTION:g}pt stakes across all selections"
+        if any(s.get("nb_price_capped") for s in sels):
+            flat_note += f" ({STAKE_DEMOTED:g}pt on demoted picks)"
         if top_score >= NAP_THRESHOLD:
             msg += (f"Top pick scored {top_score:.0f}/100 but the NAP was "
-                    f"blocked by the compliance gate (see below). Flat 1pt "
-                    f"stakes across all selections.\n")
+                    f"blocked by the compliance gate (see below). {flat_note}.\n")
         else:
-            msg += "Nothing scored 75+. Flat 1pt stakes across all selections.\n"
+            msg += f"Nothing scored 75+. {flat_note}.\n"
 
     # Next Best (rank 2)
     if len(sels) >= 2 and nap_idx >= 0:
@@ -2695,6 +2799,13 @@ def format_selections_telegram(selections: dict) -> str:
     msg += "📋 *TODAY'S SELECTIONS*\n"
     msg += "═══════════════════════════\n"
 
+    # Picks whose danger is already printed in the NAP / NEXT BEST blocks above.
+    danger_shown = set()
+    if nap_idx >= 0 and sels:
+        danger_shown.add(id(sels[nap_idx] if nap_idx < len(sels) else sels[0]))
+        if len(sels) >= 2:
+            danger_shown.add(id(sels[1 if nap_idx == 0 else 0]))
+
     for sel in sels:
         rank_emoji = "🏆" if sel["rank"] == nap_idx + 1 and nap_idx >= 0 else "⭐" if sel["rank"] == 2 else "📌"
         ew = " (E/W)" if sel.get("each_way") else ""
@@ -2706,6 +2817,11 @@ def format_selections_telegram(selections: dict) -> str:
             msg += f"   _{_sanitise_markdown(reasons[0])}_\n"
         elif isinstance(reasons, str):
             msg += f"   _{_sanitise_markdown(reasons)}_\n"
+        # Danger on every pick (17 Sep 2026): on a no-NAP card the list above is
+        # the ONLY place a pick is described, and it showed no opposition at all
+        # -- Southwell 17:25 went out with the 4/9 favourite unmentioned.
+        if sel.get("danger") and id(sel) not in danger_shown:
+            msg += f"   ⚠️ Danger: {_sanitise_markdown(sel['danger'])}\n"
 
         rnb = sel.get("next_best", {})
         if rnb and rnb.get("horse"):
@@ -2739,7 +2855,9 @@ def format_selections_telegram(selections: dict) -> str:
             msg += f"NAP: {STAKE_NAP:g}pt | NB-of-day: {STAKE_NB_OF_DAY:g}pt\n"
         msg += f"Selections: {STAKE_SELECTION:g}pt each (demoted: {STAKE_DEMOTED:g}pt)\n"
     else:
-        msg += f"All selections: {STAKE_SELECTION:g}pt flat (no NAP today)\n"
+        demoted_note = (f" (demoted: {STAKE_DEMOTED:g}pt)"
+                        if any(s.get("nb_price_capped") for s in sels) else "")
+        msg += f"All selections: {STAKE_SELECTION:g}pt flat (no NAP today){demoted_note}\n"
     msg += f"Race NBs: {STAKE_RACE_NB:g}pt each\n"
     if nap_idx >= 0 and not nb_capped:
         msg += "Double: 1pt\n"

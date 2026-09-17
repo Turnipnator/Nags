@@ -774,3 +774,35 @@ PASTPOST_FILTER_ENABLED = os.getenv("PASTPOST_FILTER_ENABLED", "true").lower() =
 # to allow for the bot's own placement latency); not the default, because the
 # purpose here is ledger integrity, not execution timing.
 PASTPOST_BUFFER_MINUTES = float(os.getenv("PASTPOST_BUFFER_MINUTES", "0"))
+
+# ── ODDS-ON FAVOURITE PASS (added 17 Sep 2026, analyst.py race-ranking) ─────
+# When the market favourite is STRICTLY odds-on (shorter than evens) in a field
+# of ODDSON_FAV_MAX_FIELD runners or fewer, PASS the race before judgement. The
+# sub-evens block keeps the favourite off the card, so the bot is left backing
+# the horses the market rates least likely -- with no or poor place terms.
+# Triggered by Southwell 17:25, 17 Sep 2026: Level Look 4/9 in a 4-runner C4
+# handicap; the bot backed Charging Thunder 10/1 (Flat form 502700, beaten 57L
+# last time) and New York Minute 10/1. No existing gate could stop it -- the
+# betable-70 gate passed on 73, and the dominant-favourite rule needs the
+# favourite 8 RPR clear (Level Look had the LOWEST RPR in the race).
+# Evidence (774 settled bot bets joined to the racecard cache, near-off
+# favourite prices): odds-on favourite AND <=6 runners = 51 bets / 30 races,
+# 4 wins, -40.8% ROI (-29pt on 71pt); -27.1% to 30 Jun (n=38), -82.9% since
+# (n=13). Per-bet CI [-85%, +37%] still spans zero; the 6-runner cut was chosen
+# after seeing this race. Fields of 7+ went the other way (+20.2%, n=41), and
+# "any field size" flips sign across the halves, so neither is used.
+# EVENS IS OK (Paul, 17 Sep: "evens is ok, just odds on") -- an Evens favourite
+# does not fire. FAILS OPEN: no parseable price => rule does not fire.
+# Can swap a race rather than only remove one (a dropped race may let the next
+# qualifying race into judgement). ⏰ REVIEW 15 Oct 2026. Revert trigger: 3
+# passed races where our would-be pick WINS. Revert: ODDSON_FAV_PASS_ENABLED=false.
+ODDSON_FAV_PASS_ENABLED = os.getenv("ODDSON_FAV_PASS_ENABLED", "true").lower() == "true"
+ODDSON_FAV_MAX_FIELD = int(os.getenv("ODDSON_FAV_MAX_FIELD", "6"))
+
+# ── F2 CONSENSUS SHADOW (added 17 Sep 2026, analyst.py CHECK 16) — LOG ONLY ──
+# F2 LONGSHOT reads the Bet365 price only. On 17 Sep Charging Thunder was 10/1
+# at Bet365 (passes F2) while 16 of 29 books had him 11/1 or bigger. This logs
+# every primary where F2 on the MEDIAN bookmaker price would decide differently
+# from live F2 on Bet365 -- in both directions -- so the reference price can be
+# judged on forward data. Mutates nothing. Log: "FILTER-SHADOW F2 CONSENSUS:".
+F2_CONSENSUS_SHADOW_ENABLED = os.getenv("F2_CONSENSUS_SHADOW_ENABLED", "true").lower() == "true"
