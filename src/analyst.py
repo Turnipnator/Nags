@@ -34,7 +34,7 @@ from config.settings import (
     FILTER_POSBLOCK_SHADOW, POSBLOCK_FLAG_AT,
     PASTPOST_FILTER_ENABLED, PASTPOST_BUFFER_MINUTES,
     ODDSON_FAV_PASS_ENABLED, ODDSON_FAV_MAX_FIELD, F2_CONSENSUS_SHADOW_ENABLED,
-    SL_FLAG_LOG_ENABLED, SL_FLAG_LOG_PATH,
+    SL_FLAG_LOG_ENABLED, SL_FLAG_LOG_PATH, NO_PRICE_SELECTION_DROP,
 )
 from src.clock import london_today, london_now, london_stamp
 from src.scraper import Runner, Race, Meeting, Scraper
@@ -1401,6 +1401,44 @@ def _enforce_compliance(selections: dict, scored_lookup: dict,
                     f"({dropped.get('odds_guide','')}) scored "
                     f"{dropped.get('adjusted_score')} — below 55 is a pass, DROPPED"
                 )
+
+    # CHECK 22: NO-PRICE SELECTIONS (added 18 Sep 2026)
+    #
+    # Nothing stopped the judgement layer naming a runner the bookmakers had
+    # not priced. 8 such rows exist (odds_guide "CHECK PRICE"), including a 4pt
+    # NAP -- Fillyoureye, 4 Apr, went off 3/1F and lost -- for 12.5pt staked
+    # and -7.6pt returned. A no-price pick is invisible to every price gate:
+    # the sub-evens block, F2 and the NAP cap all read _parse_odds_to_decimal
+    # as 0 and wave it through (Minnie Hauk, 4 May, was a next-best that
+    # started 4/6). Shipped alongside the field_size reconciliation, which
+    # deliberately KEEPS unpriced runners in the field, so the LLM now sees
+    # more of them: Ayr 15:40 on 18 Sep would have shown 15 instead of 0.
+    #
+    # Strictly subtractive -- drops the selection through the same helper F2
+    # and CHECK 21 use, or clears the race NB. Revert: NO_PRICE_SELECTION_DROP.
+    if NO_PRICE_SELECTION_DROP:
+        noprice_drop = set()
+        for i, sel in enumerate(sels):
+            rnb = sel.get("next_best") or {}
+            if rnb.get("horse") and _parse_odds_to_decimal(rnb.get("odds_guide", "") or "") <= 0:
+                sel["next_best"] = {}
+                compliance_fixes.append(
+                    f"NO PRICE: race NB {rnb.get('horse','')} has no bookmaker "
+                    f"price ({rnb.get('odds_guide','') or 'none'}) — dropped, "
+                    f"no price means no BOG and no price gate can see it"
+                )
+                logger.info("Compliance: no-price race NB dropped (%s)", rnb.get("horse", ""))
+            if _parse_odds_to_decimal(sel.get("odds_guide", "") or "") <= 0:
+                noprice_drop.add(i)
+        if noprice_drop:
+            for dropped in _drop_primaries(selections, noprice_drop):
+                compliance_fixes.append(
+                    f"NO PRICE: {dropped.get('horse','')} has no "
+                    f"bookmaker price ({dropped.get('odds_guide','') or 'none'}) "
+                    f"— DROPPED; the price gates cannot see an unpriced runner"
+                )
+                logger.info("Compliance: no-price selection dropped (%s)",
+                            dropped.get("horse", ""))
                 logger.info(f"Compliance: score floor DROPPED "
                             f"{dropped.get('horse','')} ({dropped.get('adjusted_score')})")
             sels = selections["selections"]

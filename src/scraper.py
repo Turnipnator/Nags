@@ -23,7 +23,7 @@ import httpx
 from src.clock import london_today
 from config.settings import (
     RACING_API_USERNAME, RACING_API_PASSWORD, VALID_COURSES, NR_PRICE_ONLY,
-    NR_NUMBER_FLAG_ENABLED,
+    NR_NUMBER_FLAG_ENABLED, FIELD_SIZE_RECONCILE_ENABLED,
     SPORTINGLIFE_ENABLED, SPORTINGLIFE_TIMEOUT, SPORTINGLIFE_DELAY,
     SPORTINGLIFE_BASE, USER_AGENT, API_RATE_LIMIT_RPS, API_429_MAX_RETRIES,
 )
@@ -906,7 +906,32 @@ class Scraper:
         # pre-17-Sep behaviour.
         flagged = [r.name for r, _, nr in parsed if nr]
         candidates = [(r, priced) for r, priced, nr in parsed if not nr]
-        if any(priced for _, priced in candidates):
+        unpriced_runners = [r for r, priced in candidates if not priced]
+
+        try:
+            field_size = int(data.get("field_size"))
+        except (TypeError, ValueError):
+            field_size = None
+
+        if FIELD_SIZE_RECONCILE_ENABLED:
+            # FIELD_SIZE RECONCILIATION (18 Sep 2026). `field_size` is the API's
+            # own count of actual runners, so it decides how many there are; the
+            # NR flag above names which are withdrawn. Unpriced runners are
+            # dropped ONLY when the card still holds more runners than
+            # field_size AND they exactly account for that surplus -- otherwise
+            # we cannot tell which of them is the non-runner, so we keep them
+            # all and let the mismatch warning below fire.
+            # field_size 0 (or missing) is not a field size -- never let it
+            # empty a race; an unopened market keeps everyone.
+            surplus = (len(candidates) - field_size) if field_size else 0
+            if surplus > 0 and len(unpriced_runners) == surplus:
+                drop_ids = {id(r) for r in unpriced_runners}
+                race.runners = [r for r, _ in candidates if id(r) not in drop_ids]
+                unpriced = [r.name for r in unpriced_runners]
+            else:
+                race.runners = [r for r, _ in candidates]
+                unpriced = []
+        elif any(priced for _, priced in candidates):
             race.runners = [r for r, priced in candidates if priced]
             unpriced = [r.name for r, priced in candidates if not priced]
         else:
@@ -926,10 +951,6 @@ class Scraper:
         # field_size is the API's own count excluding non-runners. If it still
         # disagrees, our filter missed something — say so rather than scoring a
         # field we have miscounted.
-        try:
-            field_size = int(data.get("field_size"))
-        except (TypeError, ValueError):
-            field_size = None
         if field_size is not None and field_size != race.num_runners:
             logger.warning(
                 f"{race.name}: field_size={field_size} but {race.num_runners} "
@@ -980,10 +1001,13 @@ class Scraper:
         # price stays the authoritative signal and an early card whose market
         # has not opened (all runners unpriced) still keeps its full field.
         jockey = data.get("jockey", "")
-        if not jockey:
-            if not NR_PRICE_ONLY:
-                return None
-            if not has_price:
+        if not jockey and not FIELD_SIZE_RECONCILE_ENABLED:
+            # Legacy per-runner drop, kept only for the revert path. It fired on
+            # 18 Sep 2026 against 16 real runners at Newbury 17:17 whose jockeys
+            # were simply not declared at 08:09. With reconciliation on, a
+            # jockey-less runner is just an unpriced runner and _parse_race
+            # decides by count. (4 Aug narrowing preserved: unpriced too.)
+            if not NR_PRICE_ONLY or not has_price:
                 return None
 
         # Parse weight from lbs

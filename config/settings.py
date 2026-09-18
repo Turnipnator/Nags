@@ -837,3 +837,37 @@ F2_CONSENSUS_SHADOW_ENABLED = os.getenv("F2_CONSENSUS_SHADOW_ENABLED", "true").l
 # rebuilds) but is NOT in the nightly DB backup.
 SL_FLAG_LOG_ENABLED = os.getenv("SL_FLAG_LOG_ENABLED", "true").lower() == "true"
 SL_FLAG_LOG_PATH = os.getenv("SL_FLAG_LOG_PATH", "/app/data/sl_flag_log.jsonl")
+
+# ── FIELD_SIZE RECONCILIATION (added 18 Sep 2026, scraper._parse_race) ───────
+# The API's own `field_size` decides HOW MANY runners a race has; the NR
+# saddle-cloth flag names WHICH are withdrawn. The two pre-flag heuristics --
+# "unpriced while a rival is priced" (9 Jul) and "no jockey declared" (narrowed
+# 4 Aug) -- now only reconcile a leftover surplus: unpriced runners are dropped
+# ONLY when the card holds more runners than field_size AND they exactly
+# account for that surplus. Otherwise every runner is kept and the existing
+# mismatch warning fires.
+# Triggered by an 08:09 /run on 18 Sep 2026, before the market had opened:
+# Ayr 15:40 (24 runners, field_size 24, 9 priced) was scored as a 9-runner
+# handicap and reached judgement; Newbury 17:17 (30 runners, field_size 30,
+# nothing priced, 16 jockeys undeclared) was scored as 14. Nothing was
+# withdrawn in either race.
+# Blast radius on 6,549 cached races: runner lists change in 7, every one a
+# race where the old rules dropped a horse that RAN. The 3 genuine catches
+# (1 Jun, card > field_size, surplus exactly unpriced) still fire.
+# ⚠ Kept unpriced runners are SCORED and COUNTED (correct) and can never be
+# backed -- every odds gate reads their price as 0 -- but the judgement layer
+# can still name one, so CHECK 22 below drops a selection with no price.
+# Revert: FIELD_SIZE_RECONCILE_ENABLED=false (restores both old heuristics).
+FIELD_SIZE_RECONCILE_ENABLED = os.getenv(
+    "FIELD_SIZE_RECONCILE_ENABLED", "true").lower() == "true"
+
+# ── CHECK 22: NO-PRICE SELECTIONS (added 18 Sep 2026, analyst) ──────────────
+# Nothing stopped the judgement layer picking a runner the bookmakers had not
+# priced: 8 such rows exist, logged as odds_guide "CHECK PRICE", including a
+# 4pt NAP (Fillyoureye, 4 Apr, 3/1F, lost) -- 12.5pt staked for -7.6pt. A
+# no-price pick is also invisible to every price gate (sub-evens block, F2
+# longshot, NAP cap all read 0 and wave it through). Strictly subtractive:
+# drops the selection (or clears the race NB) through the same helper F2 and
+# CHECK 21 use. Revert: NO_PRICE_SELECTION_DROP=false.
+NO_PRICE_SELECTION_DROP = os.getenv(
+    "NO_PRICE_SELECTION_DROP", "true").lower() == "true"
